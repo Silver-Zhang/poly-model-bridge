@@ -2,14 +2,19 @@
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#2b2a33"/>
-      <stop offset="1" stop-color="#1c1b22"/>
+      <stop offset="1" stop-color="#17161c"/>
     </linearGradient>
   </defs>
   <rect width="256" height="256" rx="52" fill="url(#bg)"/>
-  <!-- stylized "A" -->
-  <path d="M128 52 L196 204 L166 204 L128 112 L90 204 L60 204 Z" fill="#D97757"/>
-  <rect x="103" y="158" width="50" height="22" rx="11" fill="#D97757"/>
-  <!-- relay arrows -->
-  <path d="M196 88 h28 m-10 -10 l10 10 l-10 10" stroke="#8f8f9d" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-  <path d="M60 88 h-28 m10 -10 l-10 10 l10 10" stroke="#8f8f9d" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- three protocol nodes converging into one hub -->
+  <path d="M52 64 C 100 64 108 118 128 128" stroke="#D97757" stroke-width="12" fill="none" stroke-linecap="round"/>
+  <path d="M40 128 H 122" stroke="#6FBF9B" stroke-width="12" fill="none" stroke-linecap="round"/>
+  <path d="M52 192 C 100 192 108 138 128 128" stroke="#7AA2E8" stroke-width="12" fill="none" stroke-linecap="round"/>
+  <circle cx="52" cy="64" r="17" fill="#D97757"/>
+  <circle cx="40" cy="128" r="17" fill="#6FBF9B"/>
+  <circle cx="52" cy="192" r="17" fill="#7AA2E8"/>
+  <!-- hub -->
+  <circle cx="150" cy="128" r="30" fill="#E8E6F0"/>
+  <!-- arrow out -->
+  <path d="M186 128 h34 m-14 -14 l14 14 l-14 14" stroke="#E8E6F0" stroke-width="13" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

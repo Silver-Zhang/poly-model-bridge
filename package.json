@@ -1,8 +1,8 @@
 {
-  "name": "anthropic-compatible-copilot",
-  "displayName": "Anthropic Compatible Provider for Copilot",
-  "description": "Use any Anthropic Messages API compatible endpoint (official API, relays, proxies, one-api/new-api gateways) as chat models in GitHub Copilot's model picker.",
-  "version": "0.1.0",
+  "name": "poly-model-bridge",
+  "displayName": "Poly Model Bridge for Copilot",
+  "description": "Bring third-party models into GitHub Copilot's model picker over Anthropic Messages, OpenAI Chat Completions, or OpenAI Responses protocols — with per-model reasoning effort variants, tool calling and vision.",
+  "version": "0.2.0",
   "publisher": "silver-zhang",
   "author": {
     "name": "Silver-Zhang"
@@ -11,22 +11,24 @@
   "icon": "icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Silver-Zhang/anthropic-compatible-copilot.git"
+    "url": "https://github.com/Silver-Zhang/poly-model-bridge.git"
   },
   "bugs": {
-    "url": "https://github.com/Silver-Zhang/anthropic-compatible-copilot/issues"
+    "url": "https://github.com/Silver-Zhang/poly-model-bridge/issues"
   },
-  "homepage": "https://github.com/Silver-Zhang/anthropic-compatible-copilot#readme",
+  "homepage": "https://github.com/Silver-Zhang/poly-model-bridge#readme",
   "keywords": [
     "copilot",
+    "byok",
     "anthropic",
     "claude",
-    "byok",
+    "openai",
+    "responses",
+    "reasoning",
+    "effort",
     "proxy",
     "relay",
-    "language model",
-    "chat",
-    "agent"
+    "gateway"
   ],
   "engines": {
     "vscode": "^1.106.0"
@@ -45,90 +47,152 @@
   "contributes": {
     "languageModelChatProviders": [
       {
-        "vendor": "anthropic-compat",
-        "displayName": "Anthropic Compatible",
-        "managementCommand": "anthropicCompat.manage"
+        "vendor": "poly-bridge",
+        "displayName": "Poly Model Bridge",
+        "managementCommand": "polyBridge.manage"
       }
     ],
     "commands": [
       {
-        "command": "anthropicCompat.setApiKey",
-        "title": "Anthropic Compatible: Set API Key"
+        "command": "polyBridge.setApiKey",
+        "title": "Poly Model Bridge: Set API Key"
       },
       {
-        "command": "anthropicCompat.manage",
-        "title": "Anthropic Compatible: Manage Provider"
+        "command": "polyBridge.manage",
+        "title": "Poly Model Bridge: Manage Providers"
       }
     ],
     "configuration": {
-      "title": "Anthropic Compatible Provider",
+      "title": "Poly Model Bridge",
       "properties": {
-        "anthropicCompat.baseUrl": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Base URL of your Anthropic-compatible endpoint, e.g. `https://my-relay.example.com`. Requests are sent to `<baseUrl>/v1/messages` (a full `/v1/messages` URL is also accepted)."
-        },
-        "anthropicCompat.models": {
+        "polyBridge.providers": {
           "type": "array",
           "default": [],
-          "markdownDescription": "Models to show in Copilot's model picker. `id` must be a model name your endpoint actually serves.",
+          "markdownDescription": "Endpoint providers to bridge into Copilot. Each provider has a protocol (`apiType`), a `baseUrl` and a list of `models`. API keys are stored per provider in SecretStorage via the **Poly Model Bridge: Set API Key** command.",
           "items": {
             "type": "object",
             "required": [
-              "id"
+              "name",
+              "baseUrl",
+              "models"
             ],
             "properties": {
-              "id": {
-                "type": "string",
-                "description": "Model ID sent to the endpoint, e.g. claude-sonnet-4-6"
-              },
               "name": {
                 "type": "string",
-                "description": "Display name in the model picker (defaults to id)"
+                "description": "Unique provider name (used for grouping and API-key storage)"
               },
-              "maxInputTokens": {
-                "type": "number",
-                "default": 200000,
-                "description": "Context window (max input tokens)"
-              },
-              "maxOutputTokens": {
-                "type": "number",
-                "default": 16000,
-                "description": "Max output tokens per response (sent as max_tokens)"
-              },
-              "toolCalling": {
-                "type": "boolean",
-                "default": true,
-                "description": "Whether the model supports tool calling (required for agent mode)"
-              },
-              "vision": {
-                "type": "boolean",
-                "default": true,
-                "description": "Whether the model supports image input"
-              },
-              "url": {
+              "baseUrl": {
                 "type": "string",
-                "description": "Optional: full endpoint URL for this model only, overriding the global baseUrl"
+                "description": "Base URL, e.g. https://my-relay.example.com — protocol path (/v1/messages, /v1/chat/completions, /v1/responses) is appended automatically"
+              },
+              "apiType": {
+                "type": "string",
+                "enum": [
+                  "anthropic",
+                  "chat-completions",
+                  "responses"
+                ],
+                "default": "anthropic",
+                "description": "Default wire protocol for this provider's models"
+              },
+              "authHeader": {
+                "type": "string",
+                "enum": [
+                  "x-api-key",
+                  "authorization"
+                ],
+                "description": "Auth style override. Defaults: anthropic → x-api-key, OpenAI protocols → Authorization: Bearer"
+              },
+              "requiresApiKey": {
+                "type": "boolean",
+                "default": true,
+                "description": "Set false for endpoints without authentication (e.g. local servers)"
+              },
+              "extraHeaders": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Custom HTTP headers attached to every request"
+              },
+              "models": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "id"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Model ID sent to the endpoint"
+                    },
+                    "name": {
+                      "type": "string",
+                      "description": "Display name in the model picker (defaults to id)"
+                    },
+                    "apiType": {
+                      "type": "string",
+                      "enum": [
+                        "anthropic",
+                        "chat-completions",
+                        "responses"
+                      ],
+                      "description": "Per-model protocol override"
+                    },
+                    "efforts": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Reasoning-effort variants, e.g. [\"low\", \"medium\", \"high\"] — one picker entry per effort (Anthropic: output_config.effort; Chat Completions: reasoning_effort; Responses: reasoning.effort)"
+                    },
+                    "effort": {
+                      "type": "string",
+                      "description": "Single fixed reasoning effort (no picker suffix); ignored when 'efforts' is set"
+                    },
+                    "thinking": {
+                      "type": "boolean",
+                      "default": false,
+                      "description": "Anthropic: request adaptive thinking with summarized display; Responses: request reasoning summaries. Thinking deltas stream into the chat UI."
+                    },
+                    "maxInputTokens": {
+                      "type": "number",
+                      "default": 200000,
+                      "description": "Context window (max input tokens)"
+                    },
+                    "maxOutputTokens": {
+                      "type": "number",
+                      "default": 16000,
+                      "description": "Max output tokens per response"
+                    },
+                    "maxTokensField": {
+                      "type": "string",
+                      "enum": [
+                        "max_completion_tokens",
+                        "max_tokens"
+                      ],
+                      "description": "Chat Completions only: which max-tokens field to send (default max_completion_tokens; some older gateways need max_tokens)"
+                    },
+                    "toolCalling": {
+                      "type": "boolean",
+                      "default": true,
+                      "description": "Whether the model supports tool calling (required for agent mode)"
+                    },
+                    "vision": {
+                      "type": "boolean",
+                      "default": true,
+                      "description": "Whether the model supports image input"
+                    },
+                    "url": {
+                      "type": "string",
+                      "description": "Optional: full endpoint URL for this model only, overriding baseUrl + protocol path"
+                    }
+                  }
+                }
               }
             }
           }
-        },
-        "anthropicCompat.authHeader": {
-          "type": "string",
-          "enum": [
-            "x-api-key",
-            "authorization"
-          ],
-          "default": "x-api-key",
-          "markdownDescription": "Authentication style: `x-api-key` (official Anthropic style) or `authorization` (`Authorization: Bearer <key>`, required by some relays)."
-        },
-        "anthropicCompat.extraHeaders": {
-          "type": "object",
-          "default": {},
-          "additionalProperties": {
-            "type": "string"
-          },
-          "description": "Custom HTTP headers attached to every request (required by some relays)."
         }
       }
     }
