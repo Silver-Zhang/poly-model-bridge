@@ -1,0 +1,145 @@
+{
+  "name": "anthropic-compatible-copilot",
+  "displayName": "Anthropic Compatible Provider for Copilot",
+  "description": "Use any Anthropic Messages API compatible endpoint (official API, relays, proxies, one-api/new-api gateways) as chat models in GitHub Copilot's model picker.",
+  "version": "0.1.0",
+  "publisher": "silver-zhang",
+  "author": {
+    "name": "Silver-Zhang"
+  },
+  "license": "MIT",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Silver-Zhang/anthropic-compatible-copilot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Silver-Zhang/anthropic-compatible-copilot/issues"
+  },
+  "homepage": "https://github.com/Silver-Zhang/anthropic-compatible-copilot#readme",
+  "keywords": [
+    "copilot",
+    "anthropic",
+    "claude",
+    "byok",
+    "proxy",
+    "relay",
+    "language model",
+    "chat",
+    "agent"
+  ],
+  "engines": {
+    "vscode": "^1.106.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "galleryBanner": {
+    "color": "#1F1F2E",
+    "theme": "dark"
+  },
+  "pricing": "Free",
+  "main": "./extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "languageModelChatProviders": [
+      {
+        "vendor": "anthropic-compat",
+        "displayName": "Anthropic Compatible",
+        "managementCommand": "anthropicCompat.manage"
+      }
+    ],
+    "commands": [
+      {
+        "command": "anthropicCompat.setApiKey",
+        "title": "Anthropic Compatible: Set API Key"
+      },
+      {
+        "command": "anthropicCompat.manage",
+        "title": "Anthropic Compatible: Manage Provider"
+      }
+    ],
+    "configuration": {
+      "title": "Anthropic Compatible Provider",
+      "properties": {
+        "anthropicCompat.baseUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Base URL of your Anthropic-compatible endpoint, e.g. `https://my-relay.example.com`. Requests are sent to `<baseUrl>/v1/messages` (a full `/v1/messages` URL is also accepted)."
+        },
+        "anthropicCompat.models": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "Models to show in Copilot's model picker. `id` must be a model name your endpoint actually serves.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Model ID sent to the endpoint, e.g. claude-sonnet-4-6"
+              },
+              "name": {
+                "type": "string",
+                "description": "Display name in the model picker (defaults to id)"
+              },
+              "maxInputTokens": {
+                "type": "number",
+                "default": 200000,
+                "description": "Context window (max input tokens)"
+              },
+              "maxOutputTokens": {
+                "type": "number",
+                "default": 16000,
+                "description": "Max output tokens per response (sent as max_tokens)"
+              },
+              "toolCalling": {
+                "type": "boolean",
+                "default": true,
+                "description": "Whether the model supports tool calling (required for agent mode)"
+              },
+              "vision": {
+                "type": "boolean",
+                "default": true,
+                "description": "Whether the model supports image input"
+              },
+              "url": {
+                "type": "string",
+                "description": "Optional: full endpoint URL for this model only, overriding the global baseUrl"
+              }
+            }
+          }
+        },
+        "anthropicCompat.authHeader": {
+          "type": "string",
+          "enum": [
+            "x-api-key",
+            "authorization"
+          ],
+          "default": "x-api-key",
+          "markdownDescription": "Authentication style: `x-api-key` (official Anthropic style) or `authorization` (`Authorization: Bearer <key>`, required by some relays)."
+        },
+        "anthropicCompat.extraHeaders": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Custom HTTP headers attached to every request (required by some relays)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "package": "vsce package",
+    "publish": "vsce publish",
+    "publish:openvsx": "ovsx publish"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.0.0",
+    "ovsx": "^0.10.0"
+  }
+}
