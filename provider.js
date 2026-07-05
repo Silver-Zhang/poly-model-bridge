@@ -187,6 +187,15 @@ class PolyBridgeProvider {
     return enumerateModels().map((e) => e.info);
   }
 
+  getApiKey(providerName) {
+    return this._secrets.get(keySecretId(providerName));
+  }
+
+  async deleteApiKey(providerName) {
+    await this._secrets.delete(keySecretId(providerName));
+    this.refresh();
+  }
+
   async promptForApiKey(providerName) {
     const value = await vscode.window.showInputBox({
       title: "Poly Model Bridge: API key for " + providerName,

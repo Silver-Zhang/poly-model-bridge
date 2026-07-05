@@ -1,28 +1,23 @@
 "use strict";
 const vscode = require("vscode");
 const { PolyBridgeProvider, VENDOR, getProviders } = require("./provider");
+const { manageHub, addProviderWizard } = require("./ui");
 
 async function pickProvider() {
   const providers = getProviders();
   if (providers.length === 0) {
     const pick = await vscode.window.showInformationMessage(
-      "Poly Model Bridge: configure providers in settings first.",
-      "Open Settings"
+      "Poly Model Bridge: 还没有配置中转站。",
+      "添加中转站"
     );
-    if (pick === "Open Settings") {
-      vscode.commands.executeCommand(
-        "workbench.action.openSettings",
-        "polyBridge.providers"
-      );
-    }
-    return undefined;
+    return pick === "添加中转站" ? "__add__" : undefined;
   }
   if (providers.length === 1) {
     return providers[0].name;
   }
   const pick = await vscode.window.showQuickPick(
     providers.map((p) => ({ label: p.name, description: p.baseUrl })),
-    { title: "Select provider" }
+    { title: "选择中转站" }
   );
   return pick && pick.label;
 }
@@ -37,32 +32,23 @@ function activate(context) {
   context.subscriptions.push(
     vscode.commands.registerCommand("polyBridge.setApiKey", async () => {
       const name = await pickProvider();
-      if (name) {
+      if (name === "__add__") {
+        await addProviderWizard(provider);
+      } else if (name) {
         await provider.promptForApiKey(name);
       }
     })
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand("polyBridge.addProvider", async () => {
+      await addProviderWizard(provider);
+    })
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand("polyBridge.manage", async () => {
-      const pick = await vscode.window.showQuickPick(
-        [
-          { label: "$(key) Set / update API key", action: "key" },
-          { label: "$(gear) Configure providers & models", action: "settings" },
-        ],
-        { title: "Poly Model Bridge" }
-      );
-      if (pick && pick.action === "key") {
-        const name = await pickProvider();
-        if (name) {
-          await provider.promptForApiKey(name);
-        }
-      } else if (pick && pick.action === "settings") {
-        await vscode.commands.executeCommand(
-          "workbench.action.openSettings",
-          "polyBridge.providers"
-        );
-      }
+      await manageHub(provider);
     })
   );
 

@@ -19,9 +19,15 @@ Mix protocols freely — even per model within one provider. Works in Chat, Edit
 - 🔑 API keys per provider in VS Code **SecretStorage** (never in settings.json); `x-api-key` / `Bearer` styles; custom headers; key-less local endpoints supported
 - 🧩 Multiple providers side by side, grouped names in the picker
 
-## Quick Start
+## Quick Start (no JSON required)
 
-1. Add providers in Settings (`polyBridge.providers`):
+1. Command Palette → **Poly Model Bridge: Add Provider** — a wizard asks for a name, base URL, protocol and API key, then **fetches the endpoint's model list** so you just tick the models you want.
+2. Copilot Chat model picker → **Manage Models** → tick the models under **Poly Model Bridge**.
+3. Ongoing management (add/remove models, effort levels, thinking, protocol overrides, connection test): **Poly Model Bridge: Manage Providers**, also reachable from the provider's gear in Manage Models.
+
+## Advanced: configure via settings.json
+
+The UI and JSON edit the same setting (`polyBridge.providers`) — power users can edit directly:
 
 ```jsonc
 {
