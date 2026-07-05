@@ -420,9 +420,15 @@ async function manageHub(chatProvider) {
     { label: "$(json) 编辑原始配置 (settings.json)", action: "json" }
   );
 
+  if (providers.length === 0) {
+    // nothing to manage yet — jump straight into the add wizard
+    await addProviderWizard(chatProvider);
+    return;
+  }
+
   const pick = await vscode.window.showQuickPick(items, {
     title: "Poly Model Bridge：中转站管理",
-    placeHolder: providers.length ? "选择一个中转站进行管理，或添加新的" : "还没有中转站，先添加一个",
+    placeHolder: "选择一个中转站进行管理，或添加新的",
     ignoreFocusOut: true,
   });
   if (!pick) {

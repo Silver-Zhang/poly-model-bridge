@@ -162,10 +162,13 @@ class PolyBridgeProvider {
     if (providers.length === 0) {
       if (!options.silent) {
         const pick = await vscode.window.showInformationMessage(
-          "Poly Model Bridge: configure providers in settings first.",
-          "Open Settings"
+          "Poly Model Bridge: 还没有配置中转站。用向导添加一个，全程无需编辑 JSON。",
+          "添加中转站",
+          "打开设置"
         );
-        if (pick === "Open Settings") {
+        if (pick === "添加中转站") {
+          vscode.commands.executeCommand("polyBridge.addProvider");
+        } else if (pick === "打开设置") {
           vscode.commands.executeCommand(
             "workbench.action.openSettings",
             "polyBridge.providers"

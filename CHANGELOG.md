@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1
+
+- Empty-state prompt ("configure providers in settings first") now offers a one-click **添加中转站** button that launches the add-provider wizard, instead of only pointing at settings.json
+- Manage Providers hub jumps straight into the wizard when no provider exists yet
+
 ## 0.4.0
 
 - **Status-bar quick dial**: a persistent status-bar button shows the most recently used model's effort and context window (e.g. `Sonnet 5 · high · 200K`); click to adjust reasoning effort and context length on the spot, Claude Code style (also via command `Poly Model Bridge: Quick Settings`)
