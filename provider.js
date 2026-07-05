@@ -148,6 +148,9 @@ class PolyBridgeProvider {
     this._secrets = secrets;
     this._onDidChange = new vscode.EventEmitter();
     this.onDidChangeLanguageModelChatInformation = this._onDidChange.event;
+    this._onDidUseModel = new vscode.EventEmitter();
+    this.onDidUseModel = this._onDidUseModel.event;
+    this.lastUsed = undefined; // { providerName, modelId } of the most recent request
   }
 
   refresh() {
@@ -227,6 +230,8 @@ class PolyBridgeProvider {
       );
     }
     const { provider, apiType, effort } = entry;
+    this.lastUsed = { providerName: provider.name, modelId: entry.model.id };
+    this._onDidUseModel.fire(this.lastUsed);
     const adapter = PROTOCOLS[apiType];
     if (!adapter) {
       throw new Error("Poly Model Bridge: unknown apiType '" + apiType + "'.");

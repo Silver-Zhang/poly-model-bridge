@@ -1,7 +1,7 @@
 "use strict";
 const vscode = require("vscode");
 const { PolyBridgeProvider, VENDOR, getProviders } = require("./provider");
-const { manageHub, addProviderWizard } = require("./ui");
+const { manageHub, addProviderWizard, quickSettings, fmtTokens } = require("./ui");
 
 async function pickProvider() {
   const providers = getProviders();
@@ -27,6 +27,48 @@ function activate(context) {
 
   context.subscriptions.push(
     vscode.lm.registerLanguageModelChatProvider(VENDOR, provider)
+  );
+
+  // status bar: effort / context dial for the most recently used model
+  const status = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    90
+  );
+  status.command = "polyBridge.quickSettings";
+  context.subscriptions.push(status);
+
+  function updateStatus() {
+    const providers = getProviders();
+    if (providers.length === 0) {
+      status.hide();
+      return;
+    }
+    let text = "$(plug) PolyBridge";
+    let tooltip = "Poly Model Bridge：点击调整思考工作量 / 上下文长度";
+    const last = provider.lastUsed;
+    if (last) {
+      const p = providers.find((x) => x.name === last.providerName);
+      const m = p && p.models.find((x) => x.id === last.modelId);
+      if (m) {
+        text =
+          "$(plug) " + (m.name || m.id) +
+          " · " + (m.effort || (m.efforts ? m.efforts.join("/") : "high")) +
+          " · " + fmtTokens(m.maxInputTokens || 200000);
+        tooltip = `${m.name || m.id}（${p.name}）\n点击调整思考工作量 / 上下文长度`;
+      }
+    }
+    status.text = text;
+    status.tooltip = tooltip;
+    status.show();
+  }
+  updateStatus();
+  context.subscriptions.push(provider.onDidUseModel(updateStatus));
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("polyBridge.quickSettings", async () => {
+      await quickSettings(provider);
+      updateStatus();
+    })
   );
 
   context.subscriptions.push(
@@ -56,6 +98,7 @@ function activate(context) {
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("polyBridge")) {
         provider.refresh();
+        updateStatus();
       }
     })
   );

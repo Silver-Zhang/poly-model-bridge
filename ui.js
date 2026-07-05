@@ -202,6 +202,12 @@ async function editModelMenu(providers, provider, chatProvider) {
       { label: "$(symbol-string) 显示名", action: "name", description: model.name || "（未设置，显示模型 ID）" },
       { label: "$(dashboard) Effort 档位", action: "efforts", description: (model.efforts || []).join("/") || "（未配置）" },
       { label: "$(sparkle) 深度思考 thinking", action: "thinking", description: model.thinking ? "已开启" : "已关闭" },
+      {
+        label: "$(symbol-numeric) 上下文窗口 / 输出上限",
+        action: "tokens",
+        description:
+          "输入 " + (model.maxInputTokens || 200000) + " · 输出 " + (model.maxOutputTokens || 16000),
+      },
       { label: "$(arrow-swap) 协议覆盖", action: "apiType", description: model.apiType || "（跟随中转站默认）" },
     ],
     { title: `编辑 ${model.name || model.id}`, ignoreFocusOut: true }
@@ -249,6 +255,33 @@ async function editModelMenu(providers, provider, chatProvider) {
     if (!model.thinking) {
       delete model.thinking;
     }
+  } else if (action.action === "tokens") {
+    const parsePositiveInt = (v) => {
+      const n = parseInt(v.trim(), 10);
+      return Number.isFinite(n) && n > 0 ? n : undefined;
+    };
+    const inTok = await vscode.window.showInputBox({
+      title: "上下文窗口（maxInputTokens）",
+      prompt: "该模型实际支持的最大输入 token 数，按厂商文档填写；Copilot 用它决定塞多少历史/文件进请求",
+      value: String(model.maxInputTokens || 200000),
+      ignoreFocusOut: true,
+      validateInput: (v) => (parsePositiveInt(v) ? undefined : "请输入正整数"),
+    });
+    if (inTok === undefined) {
+      return;
+    }
+    const outTok = await vscode.window.showInputBox({
+      title: "单次输出上限（maxOutputTokens）",
+      prompt: "作为 max_tokens 一类字段发给中转站，直接限制单次回复长度",
+      value: String(model.maxOutputTokens || 16000),
+      ignoreFocusOut: true,
+      validateInput: (v) => (parsePositiveInt(v) ? undefined : "请输入正整数"),
+    });
+    if (outTok === undefined) {
+      return;
+    }
+    model.maxInputTokens = parsePositiveInt(inTok);
+    model.maxOutputTokens = parsePositiveInt(outTok);
   } else if (action.action === "apiType") {
     const t = await pickApiType("此模型单独使用的协议", model.apiType);
     if (!t) {
@@ -404,4 +437,126 @@ async function manageHub(chatProvider) {
   }
 }
 
-module.exports = { manageHub, addProviderWizard };
+function fmtTokens(n) {
+  if (n >= 1000000) {
+    return n / 1000000 + "M";
+  }
+  return Math.round(n / 1000) + "K";
+}
+
+const CONTEXT_PRESETS = [32000, 64000, 128000, 200000, 400000, 1000000];
+
+/**
+ * Status-bar quick panel: pick a model, then its reasoning effort and
+ * context window — the Claude Code style dial, applied instantly.
+ */
+async function quickSettings(chatProvider) {
+  const providers = readProviders();
+  const all = [];
+  for (const p of providers) {
+    for (const m of p.models) {
+      all.push({ p, m });
+    }
+  }
+  if (all.length === 0) {
+    await addProviderWizard(chatProvider);
+    return;
+  }
+
+  const last = chatProvider.lastUsed;
+  const isLast = ({ p, m }) =>
+    last && last.providerName === p.name && last.modelId === m.id;
+  all.sort((a, b) => (isLast(b) ? 1 : 0) - (isLast(a) ? 1 : 0));
+
+  const mPick = await vscode.window.showQuickPick(
+    all.map(({ p, m }) => ({
+      label: (isLast({ p, m }) ? "$(history) " : "") + (m.name || m.id),
+      description:
+        (m.effort
+          ? "effort: " + m.effort
+          : m.efforts
+            ? "efforts: " + m.efforts.join("/")
+            : "effort: 默认(high)") +
+        " · ctx " + fmtTokens(m.maxInputTokens || 200000) +
+        " · " + p.name,
+      key: p.name + "\u001F" + m.id,
+    })),
+    { title: "快速设置：选择要调整的模型", placeHolder: "最近使用的模型排在最前" }
+  );
+  if (!mPick) {
+    return;
+  }
+  const [pName, mId] = mPick.key.split("\u001F");
+  const provider = providers.find((p) => p.name === pName);
+  const model = provider.models.find((m) => m.id === mId);
+
+  // step 2: effort
+  const effortItems = [
+    {
+      label: "(不发送 effort)",
+      description: "由服务端用默认档" + (model.efforts ? "；将同时移除多档条目配置" : ""),
+      value: "",
+    },
+    ...EFFORT_CHOICES.map((e) => ({
+      label: e.label,
+      description: e.description + (model.effort === e.label ? "（当前）" : ""),
+      value: e.label,
+    })),
+    { label: "$(chevron-right) 保持不变", value: undefined },
+  ];
+  const ePick = await vscode.window.showQuickPick(effortItems, {
+    title: `思考工作量（${model.name || model.id}）`,
+  });
+  if (!ePick) {
+    return;
+  }
+  if (ePick.value !== undefined) {
+    delete model.efforts; // quick panel uses the single-dial mode
+    if (ePick.value) {
+      model.effort = ePick.value;
+    } else {
+      delete model.effort;
+    }
+  }
+
+  // step 3: context window
+  const current = model.maxInputTokens || 200000;
+  const ctxItems = [
+    ...CONTEXT_PRESETS.map((n) => ({
+      label: fmtTokens(n),
+      description: n + " tokens" + (n === current ? "（当前）" : ""),
+      value: n,
+    })),
+    { label: "$(edit) 自定义…", value: "custom" },
+    { label: "$(chevron-right) 保持不变", value: undefined },
+  ];
+  const cPick = await vscode.window.showQuickPick(ctxItems, {
+    title: `上下文窗口（${model.name || model.id}）`,
+    placeHolder: "决定 Copilot 向该模型发送多少历史/文件内容，请不要超过模型实际支持的窗口",
+  });
+  if (!cPick) {
+    return;
+  }
+  if (cPick.value === "custom") {
+    const v = await vscode.window.showInputBox({
+      title: "自定义上下文窗口（tokens）",
+      value: String(current),
+      validateInput: (s) =>
+        Number.isFinite(parseInt(s, 10)) && parseInt(s, 10) > 0 ? undefined : "请输入正整数",
+    });
+    if (v === undefined) {
+      return;
+    }
+    model.maxInputTokens = parseInt(v, 10);
+  } else if (cPick.value !== undefined) {
+    model.maxInputTokens = cPick.value;
+  }
+
+  await writeProviders(providers);
+  vscode.window.setStatusBarMessage(
+    `${model.name || model.id}: effort ${model.effort || "默认"} · ctx ${fmtTokens(model.maxInputTokens || 200000)}`,
+    4000
+  );
+}
+
+module.exports = { manageHub, addProviderWizard, quickSettings, fmtTokens };

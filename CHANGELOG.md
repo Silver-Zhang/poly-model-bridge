@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+
+- **Status-bar quick dial**: a persistent status-bar button shows the most recently used model's effort and context window (e.g. `Sonnet 5 · high · 200K`); click to adjust reasoning effort and context length on the spot, Claude Code style (also via command `Poly Model Bridge: Quick Settings`)
+- Edit-model menu now exposes context window / output limit (`maxInputTokens` / `maxOutputTokens`) — previously only settable via settings.json
+
 ## 0.3.0
 
 No more hand-editing settings.json — full QuickPick management UI:
