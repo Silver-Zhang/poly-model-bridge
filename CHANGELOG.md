@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.2
+
+- Optimized the PolyBridge Activity Bar icon for clear display at VS Code's small sidebar size
+- Kept the detailed futuristic neon logo for the extension marketplace and README
+
 ## 0.5.1
 
 - Redesigned the manager with clearer Chinese labels, explanations and collapsible providers/models
