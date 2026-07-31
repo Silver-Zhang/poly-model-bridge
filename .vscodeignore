@@ -1,6 +1,9 @@
 .gitignore
 .vscodeignore
+.vscode/**
 build-vsix.sh
 icon.svg
 node_modules/**
+.venv/**
+test/**
 **/*.vsix

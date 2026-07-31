@@ -1,0 +1,21 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "PolyBridge: Check",
+      "type": "npm",
+      "script": "check",
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "PolyBridge: Package VSIX",
+      "type": "npm",
+      "script": "package",
+      "problemMatcher": []
+    }
+  ]
+}

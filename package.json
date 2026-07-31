@@ -2,7 +2,7 @@
   "name": "poly-model-bridge",
   "displayName": "Poly Model Bridge for Copilot",
   "description": "Bring third-party models into GitHub Copilot's model picker over Anthropic Messages, OpenAI Chat Completions, or OpenAI Responses protocols — with per-model reasoning effort variants, tool calling and vision.",
-  "version": "0.4.1",
+  "version": "0.5.1",
   "publisher": "silver-zhang",
   "author": {
     "name": "Silver-Zhang"
@@ -45,6 +45,24 @@
   "main": "./extension.js",
   "activationEvents": [],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "polyBridge",
+          "title": "PolyBridge",
+          "icon": "media/logo.svg"
+        }
+      ]
+    },
+    "views": {
+      "polyBridge": [
+        {
+          "type": "webview",
+          "id": "polyBridge.managerView",
+          "name": "中转站管理"
+        }
+      ]
+    },
     "languageModelChatProviders": [
       {
         "vendor": "poly-bridge",
@@ -67,7 +85,8 @@
       },
       {
         "command": "polyBridge.manage",
-        "title": "Poly Model Bridge: Manage Providers (管理中转站)"
+        "title": "Poly Model Bridge: Open Manager (打开管理界面)",
+        "icon": "$(settings-view-bar-icon)"
       }
     ],
     "configuration": {
@@ -123,6 +142,16 @@
                 },
                 "description": "Custom HTTP headers attached to every request"
               },
+              "anthropicCacheTtl": {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "5m",
+                  "1h"
+                ],
+                "default": "off",
+                "description": "Anthropic only: explicitly set cache_control on the last tool so gateways preserve a compatible TTL. Use 1h when the gateway injects 1h system cache blocks; off sends no cache controls."
+              },
               "models": {
                 "type": "array",
                 "items": {
@@ -163,6 +192,15 @@
                       "type": "boolean",
                       "default": false,
                       "description": "Anthropic: request adaptive thinking with summarized display; Responses: request reasoning summaries. Thinking deltas stream into the chat UI."
+                    },
+                    "anthropicCacheTtl": {
+                      "type": "string",
+                      "enum": [
+                        "off",
+                        "5m",
+                        "1h"
+                      ],
+                      "description": "Per-model override for the provider's Anthropic tool cache TTL compatibility mode"
                     },
                     "maxInputTokens": {
                       "type": "number",
@@ -206,11 +244,13 @@
     }
   },
   "scripts": {
+    "check": "node --check extension.js && node --check provider.js && node --check protocols.js && node --check ui.js && node --check manager.js && node --check sidebar.js && node --check media/manager.js && node --test test/*.test.js",
     "package": "vsce package",
     "publish": "vsce publish",
     "publish:openvsx": "ovsx publish"
   },
   "devDependencies": {
+    "@types/vscode": "1.106.0",
     "@vscode/vsce": "^3.0.0",
     "ovsx": "^0.10.0"
   }

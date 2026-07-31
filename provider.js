@@ -264,6 +264,7 @@ class PolyBridgeProvider {
         options &&
         options.toolMode !== undefined &&
         options.toolMode === vscode.LanguageModelChatToolMode.Required,
+      anthropicCacheTtl: entry.model.anthropicCacheTtl || provider.anthropicCacheTtl || "off",
       effort,
       thinking: entry.model.thinking === true,
     };

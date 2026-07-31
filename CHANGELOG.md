@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.1
+
+- Redesigned the manager with clearer Chinese labels, explanations and collapsible providers/models
+- Added common reasoning levels (`minimal`, `low`, `medium`, `high`, `xhigh`, `max`) plus custom effort names
+- Added context-window presets from 32K to 1M and clarified thinking/reasoning mode behavior
+- Added a dedicated PolyBridge Activity Bar entry and sidebar shortcut to open the manager
+- Replaced the extension and Activity Bar icon with a futuristic neon bridge logo
+- Expanded README with visual setup, protocol, effort, troubleshooting and privacy guidance
+
+## 0.5.0
+
+- Added a unified visual Webview manager for providers, models, protocols, Anthropic cache TTL, authentication, custom headers and capabilities
+- API keys remain in VS Code SecretStorage and are never exposed to the Webview
+- Added `/v1/models` discovery directly in the manager, responsive layout, validation and unsaved-change tracking
+- The existing add-provider wizard and status-bar quick settings remain available
+
+## 0.4.2
+
+- Added per-provider and per-model Anthropic cache-TTL compatibility modes (`off`, `5m`, `1h`)
+- Explicitly marks the last Anthropic tool cache breakpoint when enabled, preventing gateways such as Sub2API from replacing a matching 1h TTL with their default 5m TTL
+- Added management UI, configuration schema, documentation and protocol regression tests for cache-TTL compatibility
+
 ## 0.4.1
 
 - Empty-state prompt ("configure providers in settings first") now offers a one-click **添加中转站** button that launches the add-provider wizard, instead of only pointing at settings.json

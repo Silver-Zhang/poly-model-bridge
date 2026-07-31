@@ -14,10 +14,42 @@ const EFFORT_CHOICES = [
   { label: "max", description: "Claude 系最高档" },
 ];
 
+function effortChoices(model) {
+  const configured = [
+    ...(Array.isArray(model && model.efforts) ? model.efforts : []),
+    model && model.effort,
+  ].filter(Boolean);
+  const known = new Set(EFFORT_CHOICES.map((choice) => choice.label));
+  return [
+    ...EFFORT_CHOICES,
+    ...configured
+      .filter((value, index) => !known.has(value) && configured.indexOf(value) === index)
+      .map((value) => ({ label: value, description: "模型自定义档位" })),
+  ];
+}
+
 const API_TYPES = [
   { label: "anthropic", description: "Anthropic Messages 协议（/v1/messages）" },
   { label: "chat-completions", description: "OpenAI Chat Completions（/v1/chat/completions）" },
   { label: "responses", description: "OpenAI Responses（/v1/responses）" },
+];
+
+const ANTHROPIC_CACHE_TTL_CHOICES = [
+  {
+    label: "关闭（推荐默认）",
+    value: "off",
+    description: "不发送 cache_control；适用于普通 Anthropic API 和不改写缓存的中转站",
+  },
+  {
+    label: "5 分钟",
+    value: "5m",
+    description: "在最后一个工具上显式发送 ttl=5m",
+  },
+  {
+    label: "1 小时（Sub2API 兼容）",
+    value: "1h",
+    description: "中转站在 system/messages 写入 1h 时使用，避免 tools 被默认写成 5m",
+  },
 ];
 
 function cfg() {
@@ -88,6 +120,22 @@ async function pickApiType(title, current) {
     { title, ignoreFocusOut: true }
   );
   return pick && pick.label;
+}
+
+async function pickAnthropicCacheTtl(title, current) {
+  const active = current || "off";
+  const pick = await vscode.window.showQuickPick(
+    ANTHROPIC_CACHE_TTL_CHOICES.map((item) => ({
+      ...item,
+      description: item.description + (item.value === active ? "（当前）" : ""),
+    })),
+    {
+      title,
+      ignoreFocusOut: true,
+      placeHolder: "该选项只影响 Anthropic 请求；请求没有工具时不会添加缓存断点",
+    }
+  );
+  return pick && pick.value;
 }
 
 /** Multi-select models fetched from the endpoint, with manual fallback. */
@@ -209,6 +257,11 @@ async function editModelMenu(providers, provider, chatProvider) {
           "输入 " + (model.maxInputTokens || 200000) + " · 输出 " + (model.maxOutputTokens || 16000),
       },
       { label: "$(arrow-swap) 协议覆盖", action: "apiType", description: model.apiType || "（跟随中转站默认）" },
+      {
+        label: "$(database) Anthropic 缓存 TTL 覆盖",
+        action: "cacheTtl",
+        description: model.anthropicCacheTtl || `跟随中转站（${provider.anthropicCacheTtl || "off"}）`,
+      },
     ],
     { title: `编辑 ${model.name || model.id}`, ignoreFocusOut: true }
   );
@@ -232,7 +285,7 @@ async function editModelMenu(providers, provider, chatProvider) {
     }
   } else if (action.action === "efforts") {
     const picks = await vscode.window.showQuickPick(
-      EFFORT_CHOICES.map((e) => ({
+      effortChoices(model).map((e) => ({
         ...e,
         picked: (model.efforts || []).includes(e.label),
       })),
@@ -292,6 +345,27 @@ async function editModelMenu(providers, provider, chatProvider) {
     } else {
       model.apiType = t;
     }
+  } else if (action.action === "cacheTtl") {
+    const choices = [
+      {
+        label: "跟随中转站",
+        value: "inherit",
+        description: `当前中转站为 ${provider.anthropicCacheTtl || "off"}`,
+      },
+      ...ANTHROPIC_CACHE_TTL_CHOICES,
+    ];
+    const pick = await vscode.window.showQuickPick(choices, {
+      title: `Anthropic 缓存 TTL（${model.name || model.id}）`,
+      ignoreFocusOut: true,
+    });
+    if (!pick) {
+      return;
+    }
+    if (pick.value === "inherit") {
+      delete model.anthropicCacheTtl;
+    } else {
+      model.anthropicCacheTtl = pick.value;
+    }
   }
 
   await writeProviders(providers);
@@ -313,6 +387,11 @@ async function providerMenu(providerName, chatProvider) {
       { label: "$(trash) 移除模型", action: "removeModels" },
       { label: "$(globe) 修改 Base URL", action: "baseUrl", description: provider.baseUrl },
       { label: "$(arrow-swap) 修改默认协议", action: "apiType", description: provider.apiType || "anthropic" },
+      {
+        label: "$(database) Anthropic 缓存 TTL 兼容",
+        action: "cacheTtl",
+        description: provider.anthropicCacheTtl || "off",
+      },
       { label: "$(beaker) 测试连接", action: "test" },
       { label: "$(x) 删除此中转站", action: "delete" },
     ],
@@ -369,6 +448,33 @@ async function providerMenu(providerName, chatProvider) {
         provider.apiType = t;
         await writeProviders(providers);
       }
+      break;
+    }
+    case "cacheTtl": {
+      const ttl = await pickAnthropicCacheTtl(
+        `Anthropic 缓存 TTL 兼容（${provider.name}）`,
+        provider.anthropicCacheTtl
+      );
+      if (!ttl) {
+        break;
+      }
+      if (ttl === "1h") {
+        const confirm = await vscode.window.showWarningMessage(
+          "1h 模式会在 Anthropic 请求的最后一个工具上显式发送 ttl=1h，" +
+            "用于兼容同样写入 1h system 缓存的中转站。1h 缓存写入费用通常高于 5m，是否启用？",
+          { modal: true },
+          "启用 1h"
+        );
+        if (confirm !== "启用 1h") {
+          break;
+        }
+      }
+      provider.anthropicCacheTtl = ttl;
+      await writeProviders(providers);
+      chatProvider.refresh();
+      vscode.window.showInformationMessage(
+        `已将 ${provider.name} 的 Anthropic 缓存 TTL 兼容模式设为 ${ttl}。`
+      );
       break;
     }
     case "test": {
@@ -503,7 +609,7 @@ async function quickSettings(chatProvider) {
       description: "由服务端用默认档" + (model.efforts ? "；将同时移除多档条目配置" : ""),
       value: "",
     },
-    ...EFFORT_CHOICES.map((e) => ({
+    ...effortChoices(model).map((e) => ({
       label: e.label,
       description: e.description + (model.effort === e.label ? "（当前）" : ""),
       value: e.label,

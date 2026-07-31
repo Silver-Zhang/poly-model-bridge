@@ -69,6 +69,21 @@ function joinSystemText(neutral) {
   return parts.length ? parts.join("\n\n") : undefined;
 }
 
+const ANTHROPIC_CACHE_TTLS = new Set(["5m", "1h"]);
+
+/**
+ * Add an explicit cache breakpoint to the last client tool. Gateways such as
+ * Sub2API preserve an explicit TTL instead of injecting their default 5m TTL.
+ * This lets a client align the earliest cache breakpoint with a gateway's
+ * later system/message breakpoints (Anthropic orders tools -> system -> messages).
+ */
+function applyAnthropicToolCacheTtl(tools, ttl) {
+  if (!ANTHROPIC_CACHE_TTLS.has(ttl) || tools.length === 0) {
+    return;
+  }
+  tools[tools.length - 1].cache_control = { type: "ephemeral", ttl };
+}
+
 /* ------------------------------------------------------------------ */
 /* Anthropic Messages API                                              */
 /* ------------------------------------------------------------------ */
@@ -140,6 +155,7 @@ const anthropic = {
         description: t.description || "",
         input_schema: t.inputSchema || { type: "object", properties: {} },
       }));
+      applyAnthropicToolCacheTtl(body.tools, ctx.anthropicCacheTtl);
       if (ctx.toolsRequired) {
         body.tool_choice = { type: "any" };
       }
@@ -519,4 +535,4 @@ function resolveEndpoint(baseUrl, apiType, modelUrl) {
   return base + "/v1/" + path;
 }
 
-module.exports = { PROTOCOLS, resolveEndpoint };
+module.exports = { PROTOCOLS, resolveEndpoint, applyAnthropicToolCacheTtl };

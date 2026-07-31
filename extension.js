@@ -1,7 +1,9 @@
 "use strict";
 const vscode = require("vscode");
 const { PolyBridgeProvider, VENDOR, getProviders } = require("./provider");
-const { manageHub, addProviderWizard, quickSettings, fmtTokens } = require("./ui");
+const { addProviderWizard, quickSettings, fmtTokens } = require("./ui");
+const { ManagerPanel } = require("./manager");
+const { SidebarProvider } = require("./sidebar");
 
 async function pickProvider() {
   const providers = getProviders();
@@ -24,9 +26,11 @@ async function pickProvider() {
 
 function activate(context) {
   const provider = new PolyBridgeProvider(context.secrets);
+  const sidebar = new SidebarProvider(context);
 
   context.subscriptions.push(
-    vscode.lm.registerLanguageModelChatProvider(VENDOR, provider)
+    vscode.lm.registerLanguageModelChatProvider(VENDOR, provider),
+    vscode.window.registerWebviewViewProvider("polyBridge.managerView", sidebar)
   );
 
   // status bar: effort / context dial for the most recently used model
@@ -39,10 +43,15 @@ function activate(context) {
 
   function updateStatus() {
     const providers = getProviders();
+    sidebar.refresh();
     if (providers.length === 0) {
-      status.hide();
+      status.text = "$(plug) PolyBridge";
+      status.tooltip = "Poly Model Bridge：点击打开管理界面";
+      status.command = "polyBridge.manage";
+      status.show();
       return;
     }
+    status.command = "polyBridge.quickSettings";
     let text = "$(plug) PolyBridge";
     let tooltip = "Poly Model Bridge：点击调整思考工作量 / 上下文长度";
     const last = provider.lastUsed;
@@ -90,7 +99,7 @@ function activate(context) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand("polyBridge.manage", async () => {
-      await manageHub(provider);
+      ManagerPanel.show(context, provider);
     })
   );
 

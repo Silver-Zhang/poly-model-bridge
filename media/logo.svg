@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="20" y1="20" x2="492" y2="492" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#111C3A"/>
+      <stop offset="0.52" stop-color="#263A78"/>
+      <stop offset="1" stop-color="#0A1028"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="64" y1="90" x2="440" y2="420" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8CF7FF"/>
+      <stop offset="0.48" stop-color="#35C7FF"/>
+      <stop offset="1" stop-color="#8A7CFF"/>
+    </linearGradient>
+    <linearGradient id="pink" x1="84" y1="105" x2="420" y2="408" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF77D9"/>
+      <stop offset="1" stop-color="#8A7CFF"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="22"/>
+    </filter>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#9EB5FF" stroke-opacity=".10"/>
+    </pattern>
+  </defs>
+  <rect x="12" y="12" width="488" height="488" rx="112" fill="url(#bg)"/>
+  <rect x="12" y="12" width="488" height="488" rx="112" fill="url(#grid)"/>
+  <circle cx="282" cy="262" r="142" fill="#58DFFF" opacity=".10" filter="url(#soft)"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)">
+    <path d="M92 154H186C244 154 244 256 302 256H338" stroke="url(#cyan)" stroke-width="22"/>
+    <path d="M92 256H338" stroke="url(#cyan)" stroke-width="22"/>
+    <path d="M92 358H186C244 358 244 256 302 256H338" stroke="url(#pink)" stroke-width="22"/>
+    <circle cx="92" cy="154" r="16" fill="#8CF7FF" stroke="none"/>
+    <circle cx="92" cy="256" r="16" fill="#35C7FF" stroke="none"/>
+    <circle cx="92" cy="358" r="16" fill="#FF77D9" stroke="none"/>
+    <path d="M338 198L422 256L338 314Z" fill="url(#cyan)" stroke="#D8FBFF" stroke-width="6"/>
+  </g>
+  <path d="M338 198L422 256L338 314" fill="none" stroke="#F4FFFF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="402" cy="105" r="4" fill="#8CF7FF"/><circle cx="432" cy="130" r="3" fill="#FF77D9"/>
+  <circle cx="78" cy="420" r="3" fill="#8A7CFF"/><circle cx="112" cy="438" r="4" fill="#35C7FF"/>
+</svg>
