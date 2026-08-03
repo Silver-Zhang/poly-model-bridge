@@ -14,6 +14,17 @@ const CACHE_TTLS = [
   { value: "1h", label: "1 小时" },
 ];
 
+const USAGE_MODES = [
+  { value: "auto", label: "自动（推荐）" },
+  { value: "on", label: "始终请求" },
+  { value: "off", label: "关闭" },
+];
+
+const TOKEN_ESTIMATORS = [
+  { value: "conservative", label: "保守（推荐）" },
+  { value: "balanced", label: "平衡" },
+];
+
 const EFFORTS = [
   { value: "minimal", label: "minimal（最省）" },
   { value: "low", label: "low（低）" },
@@ -80,6 +91,8 @@ function defaultModel(id) {
     thinking: false,
     maxInputTokens: 200000,
     maxOutputTokens: 16000,
+    usageMode: "auto",
+    tokenEstimator: "conservative",
     toolCalling: true,
     vision: true,
     _open: !id,
@@ -93,6 +106,7 @@ function defaultProvider() {
     baseUrl: "",
     apiType: "anthropic",
     anthropicCacheTtl: "off",
+    usageMode: "auto",
     requiresApiKey: true,
     models: [],
     _open: true,
@@ -150,6 +164,11 @@ function modelHtml(model, providerIndex, modelIndex) {
         <input data-custom-efforts value="${esc(customEfforts.join(", "))}" placeholder="其他档位（可选，用逗号分开）">
         <span class="hint">不同模型支持的档位不同。OpenAI 常见 minimal / low / medium / high / xhigh，Claude 或中转站还可能支持 max。只选服务器明确支持的档位；其他模型的特殊名称可填在“其他档位”中。不选则由服务器自动决定。</span>
       </div>
+      <div class="field">
+        <label>Token 估算</label>
+        ${selectHtml("tokenEstimator", TOKEN_ESTIMATORS, model.tokenEstimator || "conservative", "")}
+        <span class="hint">保守模式会为中文、JSON、代码和工具结果预留更多空间，能减少上下文超限。</span>
+      </div>
       <div class="field full">
         <label>可发送的上下文长度</label>
         ${contextWindowHtml(model.maxInputTokens)}
@@ -177,6 +196,16 @@ function modelHtml(model, providerIndex, modelIndex) {
             ${EFFORTS.map((item) => `<option value="${item.value}" ${model.effort === item.value ? "selected" : ""}>${item.label}</option>`).join("")}
           </select>
           <span class="hint">只有上面的推理强度档位全都没选时，这项才会生效。</span>
+        </div>
+        <div class="field">
+          <label>上游 Token 用量</label>
+          ${selectHtml("usageMode", USAGE_MODES, model.usageMode || "", "跟随中转站设置")}
+          <span class="hint">自动模式会请求 OpenAI 流式 usage；上游不返回 usage 时，Copilot 仍可能显示 0。</span>
+        </div>
+        <div class="field">
+          <label>单个工具结果上限</label>
+          <input type="number" min="512" data-k="toolResultMaxTokens" value="${esc(model.toolResultMaxTokens || "")}" placeholder="自动（按上下文计算）">
+          <span class="hint">超长命令输出会保留开头和结尾，中间替换为截断提示。</span>
         </div>
         <div class="field">
           <label>单次回复长度上限</label>
@@ -242,6 +271,11 @@ function providerHtml(provider, providerIndex) {
         <label>缓存时长兼容</label>
         ${selectHtml("anthropicCacheTtl", CACHE_TTLS, provider.anthropicCacheTtl || "off", "")}
         <span class="hint">只对 Anthropic 格式有效。聊天时报 cache_control 冲突时，改成 1 小时通常就好了。</span>
+      </div>
+      <div class="field">
+        <label>上游 Token 用量</label>
+        ${selectHtml("usageMode", USAGE_MODES, provider.usageMode || "auto", "")}
+        <span class="hint">用于让 Copilot 显示真实上下文用量；需要中转站在流式响应中返回 usage。</span>
       </div>
       <div class="field check-option">
         <label><input type="checkbox" data-k="requiresApiKey" ${provider.requiresApiKey !== false ? "checked" : ""}> 这个中转站需要密钥</label>

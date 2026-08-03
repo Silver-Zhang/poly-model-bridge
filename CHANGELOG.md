@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.3
+
+- 修复 Copilot 上下文用量长期显示 `0`：解析 Anthropic、OpenAI Chat Completions 和 OpenAI Responses 的 usage，并通过 VS Code usage data part 上报。
+- 增加 Chat Completions 流式 `include_usage` 兼容模式。
+- 改进中文、JSON、源代码、Base64 和工具结果的保守 Token 估算。
+- 自动截断超大的单个工具输出，并在超限时裁剪较旧对话轮次，同时保留系统消息、当前用户消息和相关工具调用链。
+- 增加 400 错误的常见兼容性提示，并在管理界面提供 usage、估算策略和工具结果上限设置。
+
 ## 0.5.2
 
 - Optimized the PolyBridge Activity Bar icon for clear display at VS Code's small sidebar size

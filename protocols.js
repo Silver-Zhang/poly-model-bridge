@@ -12,6 +12,7 @@
  *
  * Stream sink (protocol-agnostic):
  *   sink.text(str)  sink.thinking(str)  sink.toolCall(id, name, inputObj)
+ *   sink.usage(normalizedUsage)
  */
 
 /** Async-iterate SSE `data:` payload objects from a fetch body stream. */
@@ -53,6 +54,42 @@ function parseJsonSafe(text) {
   } catch {
     return {};
   }
+}
+
+function normalizeUsage(raw, _protocol) {
+  if (!raw || typeof raw !== "object") return undefined;
+  const prompt = Number(raw.prompt_tokens ?? raw.input_tokens);
+  const completion = Number(raw.completion_tokens ?? raw.output_tokens);
+  const total = Number(raw.total_tokens);
+  if (!Number.isFinite(prompt) || !Number.isFinite(completion)) return undefined;
+  const usage = {
+    prompt_tokens: Math.max(0, Math.round(prompt)),
+    completion_tokens: Math.max(0, Math.round(completion)),
+    total_tokens: Number.isFinite(total)
+      ? Math.max(0, Math.round(total))
+      : Math.max(0, Math.round(prompt + completion)),
+  };
+  const cachedValue = raw.prompt_tokens_details && raw.prompt_tokens_details.cached_tokens;
+  const hasAnthropicCache =
+    raw.cache_read_input_tokens !== undefined || raw.cache_creation_input_tokens !== undefined;
+  const cached = Number(
+    cachedValue !== undefined
+      ? cachedValue
+      : hasAnthropicCache
+        ? Number(raw.cache_read_input_tokens || 0) + Number(raw.cache_creation_input_tokens || 0)
+        : NaN
+  );
+  if (Number.isFinite(cached) && cached >= 0) {
+    usage.prompt_tokens_details = { cached_tokens: Math.round(cached) };
+  }
+  const reasoning = Number(
+    (raw.completion_tokens_details && raw.completion_tokens_details.reasoning_tokens) ??
+    raw.reasoning_tokens
+  );
+  if (Number.isFinite(reasoning) && reasoning >= 0) {
+    usage.completion_tokens_details = { reasoning_tokens: Math.round(reasoning) };
+  }
+  return usage;
 }
 
 function joinSystemText(neutral) {
@@ -171,6 +208,7 @@ const anthropic = {
 
   async parseStream(stream, sink) {
     const blocks = new Map();
+    let streamUsage = {};
     for await (const evt of sseEvents(stream)) {
       switch (evt.type) {
         case "content_block_start": {
@@ -203,6 +241,16 @@ const anthropic = {
         case "error": {
           const err = evt.error || {};
           throw new Error((err.type || "error") + ": " + (err.message || "unknown"));
+        }
+        case "message_start": {
+          streamUsage = { ...streamUsage, ...((evt.message && evt.message.usage) || {}) };
+          break;
+        }
+        case "message_delta": {
+          streamUsage = { ...streamUsage, ...(evt.usage || {}) };
+          const usage = normalizeUsage(streamUsage, "anthropic");
+          if (usage && sink.usage) sink.usage(usage);
+          break;
         }
         default:
           break;
@@ -296,6 +344,9 @@ const chatCompletions = {
     }
 
     const body = { model: ctx.modelId, stream: true, messages };
+    if (ctx.usageMode !== "off") {
+      body.stream_options = { include_usage: true };
+    }
     body[ctx.maxTokensField || "max_completion_tokens"] = ctx.maxOutputTokens;
     if (ctx.tools.length > 0) {
       body.tools = ctx.tools.map((t) => ({
@@ -336,6 +387,10 @@ const chatCompletions = {
       if (evt.error) {
         const err = evt.error;
         throw new Error((err.type || "error") + ": " + (err.message || JSON.stringify(err)));
+      }
+      if (evt.usage) {
+        const usage = normalizeUsage(evt.usage, "chat-completions");
+        if (usage && sink.usage) sink.usage(usage);
       }
       const choice = (evt.choices && evt.choices[0]) || {};
       const delta = choice.delta || {};
@@ -503,6 +558,14 @@ const responses = {
           const err = (evt.response && evt.response.error) || {};
           throw new Error((err.code || "response.failed") + ": " + (err.message || "unknown"));
         }
+        case "response.completed": {
+          const usage = normalizeUsage(
+            evt.response && evt.response.usage,
+            "responses"
+          );
+          if (usage && sink.usage) sink.usage(usage);
+          break;
+        }
         case "error": {
           throw new Error((evt.code || "error") + ": " + (evt.message || "unknown"));
         }
@@ -535,4 +598,9 @@ function resolveEndpoint(baseUrl, apiType, modelUrl) {
   return base + "/v1/" + path;
 }
 
-module.exports = { PROTOCOLS, resolveEndpoint, applyAnthropicToolCacheTtl };
+module.exports = {
+  PROTOCOLS,
+  resolveEndpoint,
+  applyAnthropicToolCacheTtl,
+  normalizeUsage,
+};

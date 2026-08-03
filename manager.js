@@ -4,6 +4,8 @@ const { resolveEndpoint } = require("./protocols");
 
 const API_TYPES = new Set(["anthropic", "chat-completions", "responses"]);
 const CACHE_TTLS = new Set(["off", "5m", "1h"]);
+const USAGE_MODES = new Set(["auto", "on", "off"]);
+const TOKEN_ESTIMATORS = new Set(["conservative", "balanced"]);
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -55,6 +57,10 @@ function sanitizeModel(raw) {
   if (raw.thinking === true) model.thinking = true;
   model.maxInputTokens = positiveInteger(raw.maxInputTokens, 200000);
   model.maxOutputTokens = positiveInteger(raw.maxOutputTokens, 16000);
+  if (USAGE_MODES.has(raw.usageMode)) model.usageMode = raw.usageMode;
+  if (TOKEN_ESTIMATORS.has(raw.tokenEstimator)) model.tokenEstimator = raw.tokenEstimator;
+  const toolResultMaxTokens = positiveInteger(raw.toolResultMaxTokens, 0);
+  if (toolResultMaxTokens) model.toolResultMaxTokens = toolResultMaxTokens;
   model.toolCalling = raw.toolCalling !== false;
   model.vision = raw.vision !== false;
   if (raw.maxTokensField === "max_tokens") model.maxTokensField = "max_tokens";
@@ -82,6 +88,7 @@ function sanitizeProvider(raw, existingNames) {
     requiresApiKey: raw.requiresApiKey !== false,
     models: [],
   };
+  if (USAGE_MODES.has(raw.usageMode)) provider.usageMode = raw.usageMode;
   if (raw.authHeader === "x-api-key" || raw.authHeader === "authorization") {
     provider.authHeader = raw.authHeader;
   }

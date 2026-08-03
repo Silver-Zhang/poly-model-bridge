@@ -1,6 +1,11 @@
 "use strict";
 const vscode = require("vscode");
 const { PROTOCOLS, resolveEndpoint } = require("./protocols");
+const {
+  estimateTokenCount,
+  sanitizeNeutral,
+  pruneNeutralToBudget,
+} = require("./context");
 
 const VENDOR = "poly-bridge";
 const SEP = "\u001F"; // internal picker-id separator: provider SEP model SEP effort
@@ -267,7 +272,27 @@ class PolyBridgeProvider {
       anthropicCacheTtl: entry.model.anthropicCacheTtl || provider.anthropicCacheTtl || "off",
       effort,
       thinking: entry.model.thinking === true,
+      usageMode: entry.model.usageMode || provider.usageMode || "auto",
     };
+
+    const maxInputTokens = Number(entry.model.maxInputTokens || 200000);
+    const toolResultMaxTokens = Number(entry.model.toolResultMaxTokens) ||
+      Math.max(512, Math.min(32768, Math.floor(maxInputTokens * 0.2)));
+    ctx.neutral = sanitizeNeutral(ctx.neutral, toolResultMaxTokens);
+    const reserve = Math.max(256, Number(ctx.maxOutputTokens || 16000));
+    const budget = Math.max(1, maxInputTokens - reserve);
+    const pruned = pruneNeutralToBudget(
+      ctx.neutral,
+      budget,
+      (neutral) => adapter.buildBody({ ...ctx, neutral })
+    );
+    ctx.neutral = pruned.neutral;
+    if (pruned.estimatedTokens > budget) {
+      throw new Error(
+        `Poly Model Bridge: 请求上下文过长（估算 ${pruned.estimatedTokens} tokens，` +
+        `可用上限 ${budget} tokens）。请缩小上下文长度、减少工具输出，或新建聊天。`
+      );
+    }
 
     const endpoint = resolveEndpoint(provider.baseUrl, apiType, entry.model.url);
     const headers = Object.assign(
@@ -285,6 +310,16 @@ class PolyBridgeProvider {
       },
       toolCall: (id, name, input) =>
         progress.report(new vscode.LanguageModelToolCallPart(id, name, input)),
+      usage: (usage) => {
+        if (vscode.LanguageModelDataPart && usage) {
+          progress.report(
+            new vscode.LanguageModelDataPart(
+              new TextEncoder().encode(JSON.stringify(usage)),
+              "usage"
+            )
+          );
+        }
+      },
     };
 
     const ac = new AbortController();
@@ -298,9 +333,12 @@ class PolyBridgeProvider {
       });
       if (!res.ok || !res.body) {
         const errText = await res.text().catch(() => "");
+        const hints = res.status === 400
+          ? "\n可能原因：reasoning_effort、max_completion_tokens、tool_choice 或工具调用参数不被中转站支持；也请确认接口格式和请求地址。"
+          : "";
         throw new Error(
           "Request failed " + res.status + " " + res.statusText + " @ " +
-            endpoint + "\n" + errText.slice(0, 800)
+            endpoint + hints + "\n" + errText.slice(0, 1600)
         );
       }
       await adapter.parseStream(res.body, sink);
@@ -309,18 +347,22 @@ class PolyBridgeProvider {
     }
   }
 
-  async provideTokenCount(_model, text, _token) {
+  async provideTokenCount(model, text, _token) {
+    const entry = enumerateModels().find((item) => item.pickerId === model.id);
+    const strategy = entry && entry.model.tokenEstimator === "balanced"
+      ? "balanced"
+      : "conservative";
     if (typeof text === "string") {
-      return Math.ceil(text.length / 4);
+      return estimateTokenCount(text, strategy);
     }
     let total = 8;
     for (const part of text.content || []) {
       if (part instanceof vscode.LanguageModelTextPart) {
-        total += Math.ceil(part.value.length / 4);
+        total += estimateTokenCount(part.value, strategy) + 4;
       } else if (part instanceof vscode.LanguageModelToolCallPart) {
-        total += Math.ceil(JSON.stringify(part.input || {}).length / 4) + 16;
+        total += estimateTokenCount(JSON.stringify(part.input || {}), strategy) + 24;
       } else if (part instanceof vscode.LanguageModelToolResultPart) {
-        total += Math.ceil(toolResultText(part).length / 4) + 16;
+        total += estimateTokenCount(toolResultText(part), strategy) + 24;
       }
     }
     return total;

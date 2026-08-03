@@ -2,7 +2,7 @@
   "name": "poly-model-bridge",
   "displayName": "Poly Model Bridge for Copilot",
   "description": "Bring third-party models into GitHub Copilot's model picker over Anthropic Messages, OpenAI Chat Completions, or OpenAI Responses protocols — with per-model reasoning effort variants, tool calling and vision.",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "publisher": "silver-zhang",
   "author": {
     "name": "Silver-Zhang"
@@ -152,6 +152,12 @@
                 "default": "off",
                 "description": "Anthropic only: explicitly set cache_control on the last tool so gateways preserve a compatible TTL. Use 1h when the gateway injects 1h system cache blocks; off sends no cache controls."
               },
+              "usageMode": {
+                "type": "string",
+                "enum": ["auto", "on", "off"],
+                "default": "auto",
+                "description": "Whether to request and report upstream token usage. Auto enables OpenAI stream usage and reports it when the gateway returns it."
+              },
               "models": {
                 "type": "array",
                 "items": {
@@ -211,6 +217,22 @@
                       "type": "number",
                       "default": 16000,
                       "description": "Max output tokens per response"
+                    },
+                    "usageMode": {
+                      "type": "string",
+                      "enum": ["auto", "on", "off"],
+                      "description": "Per-model override for upstream usage reporting"
+                    },
+                    "tokenEstimator": {
+                      "type": "string",
+                      "enum": ["conservative", "balanced"],
+                      "default": "conservative",
+                      "description": "Token count estimation strategy. Conservative is safer for CJK, JSON, source code and tool output."
+                    },
+                    "toolResultMaxTokens": {
+                      "type": "number",
+                      "minimum": 512,
+                      "description": "Optional maximum size for each tool result before it is truncated"
                     },
                     "maxTokensField": {
                       "type": "string",
