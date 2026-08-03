@@ -25,7 +25,9 @@ async function pickProvider() {
 }
 
 function activate(context) {
-  const provider = new PolyBridgeProvider(context.secrets);
+  const output = vscode.window.createOutputChannel("PolyBridge");
+  context.subscriptions.push(output);
+  const provider = new PolyBridgeProvider(context.secrets, output);
   const sidebar = new SidebarProvider(context);
 
   context.subscriptions.push(

@@ -4,6 +4,7 @@ const { PROTOCOLS, resolveEndpoint } = require("./protocols");
 const {
   estimateTokenCount,
   sanitizeNeutral,
+  completeUsage,
   pruneNeutralToBudget,
 } = require("./context");
 
@@ -149,8 +150,9 @@ function enumerateModels() {
 }
 
 class PolyBridgeProvider {
-  constructor(secrets) {
+  constructor(secrets, output) {
     this._secrets = secrets;
+    this._output = output;
     this._onDidChange = new vscode.EventEmitter();
     this.onDidChangeLanguageModelChatInformation = this._onDidChange.event;
     this._onDidUseModel = new vscode.EventEmitter();
@@ -301,24 +303,25 @@ class PolyBridgeProvider {
     );
 
     const ThinkingPart = vscode.LanguageModelThinkingPart;
+    let upstreamUsage;
+    let completionTokens = 0;
     const sink = {
-      text: (t) => progress.report(new vscode.LanguageModelTextPart(t)),
+      text: (t) => {
+        completionTokens += estimateTokenCount(t);
+        progress.report(new vscode.LanguageModelTextPart(t));
+      },
       thinking: (t) => {
+        completionTokens += estimateTokenCount(t);
         if (ThinkingPart && t) {
           progress.report(new ThinkingPart(t));
         }
       },
-      toolCall: (id, name, input) =>
-        progress.report(new vscode.LanguageModelToolCallPart(id, name, input)),
+      toolCall: (id, name, input) => {
+        completionTokens += 16 + estimateTokenCount(JSON.stringify(input || {}));
+        progress.report(new vscode.LanguageModelToolCallPart(id, name, input));
+      },
       usage: (usage) => {
-        if (vscode.LanguageModelDataPart && usage) {
-          progress.report(
-            new vscode.LanguageModelDataPart(
-              new TextEncoder().encode(JSON.stringify(usage)),
-              "usage"
-            )
-          );
-        }
+        upstreamUsage = usage;
       },
     };
 
@@ -342,6 +345,26 @@ class PolyBridgeProvider {
         );
       }
       await adapter.parseStream(res.body, sink);
+      if (vscode.LanguageModelDataPart) {
+        const promptTokens = estimateTokenCount(
+          JSON.stringify(adapter.buildBody(ctx))
+        );
+        const usage = completeUsage(upstreamUsage, promptTokens, completionTokens);
+        const usagePart = new vscode.LanguageModelDataPart(
+          new TextEncoder().encode(JSON.stringify(usage)),
+          "usage"
+        );
+        progress.report(usagePart);
+        this._output?.appendLine(
+          `[usage] ${provider.name}/${entry.model.id}: ` +
+          `prompt=${usage.prompt_tokens}, completion=${usage.completion_tokens}, ` +
+          `total=${usage.total_tokens}, source=${upstreamUsage ? "upstream" : "estimated"}`
+        );
+      } else {
+        this._output?.appendLine(
+          `[usage] ${provider.name}/${entry.model.id}: VS Code 不支持 LanguageModelDataPart，无法上报。`
+        );
+      }
     } finally {
       cancelSub.dispose();
     }

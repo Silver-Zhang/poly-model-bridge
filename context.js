@@ -83,6 +83,23 @@ function estimateNeutralTokens(neutral) {
   return total;
 }
 
+function completeUsage(upstream, promptTokens, completionTokens) {
+  const prompt = Number(upstream && upstream.prompt_tokens);
+  const completion = Number(upstream && upstream.completion_tokens);
+  const normalizedPrompt = Number.isFinite(prompt)
+    ? Math.max(0, Math.round(prompt))
+    : Math.max(1, Math.round(Number(promptTokens) || 1));
+  const normalizedCompletion = Number.isFinite(completion)
+    ? Math.max(0, Math.round(completion))
+    : Math.max(0, Math.round(Number(completionTokens) || 0));
+  return {
+    ...(upstream || {}),
+    prompt_tokens: normalizedPrompt,
+    completion_tokens: normalizedCompletion,
+    total_tokens: normalizedPrompt + normalizedCompletion,
+  };
+}
+
 function relatedToolIds(message) {
   return new Set((message.parts || [])
     .filter((part) => part.kind === "toolCall" || part.kind === "toolResult")
@@ -139,5 +156,6 @@ module.exports = {
   truncateText,
   sanitizeNeutral,
   estimateNeutralTokens,
+  completeUsage,
   pruneNeutralToBudget,
 };

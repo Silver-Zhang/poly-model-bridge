@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.4
+
+- 修复中转站不返回 usage 时 Copilot 上下文用量仍显示 `0`：现在会根据最终请求体与流式输出进行保守估算并上报。
+- 将 usage 统一延迟到响应结束时发送，优先采用上游真实值，并避免分段 usage 被 Copilot 忽略或覆盖。
+- 增加 PolyBridge 输出日志，记录每次 usage 上报值及其来自上游还是本地估算，便于诊断上下文窗口显示。
+
 ## 0.5.3
 
 - 修复 Copilot 上下文用量长期显示 `0`：解析 Anthropic、OpenAI Chat Completions 和 OpenAI Responses 的 usage，并通过 VS Code usage data part 上报。
