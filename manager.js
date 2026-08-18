@@ -1,6 +1,8 @@
 "use strict";
 const vscode = require("vscode");
 const { resolveEndpoint } = require("./protocols");
+const { SEP, enumerateModels } = require("./provider");
+const routing = require("./routing");
 
 const API_TYPES = new Set(["anthropic", "chat-completions", "responses"]);
 const CACHE_TTLS = new Set(["off", "5m", "1h"]);
@@ -74,6 +76,11 @@ function sanitizeProvider(raw, existingNames) {
   const baseUrl = normalizeString(raw && raw.baseUrl).replace(/\/+$/, "");
   if (!name) throw new Error("中转站名称不能为空。");
   if (existingNames.has(name)) throw new Error(`中转站名称重复：${name}`);
+  // The picker id is `provider SEP model SEP effort`; allowing SEP inside a
+  // name would make ids ambiguous and break `chat.utilityModel` references.
+  if (name.includes(SEP)) {
+    throw new Error(`中转站名称不能包含 "${SEP}"：${name}`);
+  }
   if (!/^https?:\/\/\S+$/i.test(baseUrl)) {
     throw new Error(`${name} 的 Base URL 必须以 http:// 或 https:// 开头。`);
   }
@@ -214,7 +221,29 @@ class ManagerPanel {
     for (const provider of providers) {
       keyStates[provider.name] = !!(await this.context.secrets.get(keySecretId(provider.name)));
     }
-    await this.panel.webview.postMessage({ type: "state", providers, keyStates });
+    await this.panel.webview.postMessage({
+      type: "state",
+      providers,
+      keyStates,
+      routing: routing.readRouting(),
+      models: this.routableModels(),
+    });
+  }
+
+  /**
+   * Models Copilot will accept for a subagent or utility slot. VS Code filters
+   * on `capabilities.toolCalling`, so tool-less models are excluded here too
+   * rather than being offered and then silently ignored.
+   */
+  routableModels() {
+    return enumerateModels()
+      .filter((entry) => entry.info.capabilities.toolCalling)
+      .map((entry) => ({
+        pickerId: entry.pickerId,
+        name: entry.info.name,
+        qualifiedName: entry.qualifiedName,
+        utilityRef: entry.utilityRef,
+      }));
   }
 
   async receive(message) {
@@ -234,6 +263,15 @@ class ManagerPanel {
           break;
         case "openSettings":
           await vscode.commands.executeCommand("workbench.action.openSettingsJson");
+          break;
+        case "saveRouting":
+          await this.saveRouting(message.routing);
+          break;
+        case "writeInstructions":
+          await this.writeInstructions();
+          break;
+        case "writeAgentFile":
+          await this.writeAgentFile(message.pickerId);
           break;
         default:
           break;
@@ -272,6 +310,98 @@ class ManagerPanel {
     this.chatProvider.refresh();
     this.panel.webview.postMessage({ type: "saved" });
     await this.sendState();
+  }
+
+  async saveRouting(rawRouting) {
+    const refs = new Map(
+      this.routableModels().map((model) => [model.pickerId, model.utilityRef])
+    );
+    const result = await routing.applyRouting(rawRouting, (pickerId) =>
+      refs.get(pickerId)
+    );
+    const notes = [];
+    if (result.skipped.length) {
+      // Copilot contributes two of these keys; without it installed they are
+      // simply not registered and cannot be written.
+      notes.push(
+        `以下设置未注册（通常是未安装 GitHub Copilot 扩展），已跳过：${result.skipped.join("、")}`
+      );
+    }
+    this.panel.webview.postMessage({
+      type: "routingSaved",
+      message: notes.join("\n") || undefined,
+    });
+    await this.sendState();
+  }
+
+  workspaceFolder() {
+    const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+    if (!folder) {
+      throw new Error("请先打开一个工作区文件夹，再写入文件。");
+    }
+    return folder;
+  }
+
+  /**
+   * Generate the custom agent whose frontmatter pins the subagent model. This
+   * is the only client-side way to choose a subagent's model — the built-in
+   * execution/search subagents resolve their model name against CAPI only.
+   */
+  async writeAgentFile(pickerId) {
+    const folder = this.workspaceFolder();
+    const model = this.routableModels().find((item) => item.pickerId === pickerId);
+    if (!model) {
+      throw new Error("请先选择一个用于子 Agent 的模型。");
+    }
+    const target = vscode.Uri.joinPath(
+      folder.uri,
+      ".github",
+      "agents",
+      routing.AGENT_NAME + ".agent.md"
+    );
+    await vscode.workspace.fs.writeFile(
+      target,
+      new TextEncoder().encode(routing.buildAgentFile(model.qualifiedName))
+    );
+    const document = await vscode.workspace.openTextDocument(target);
+    await vscode.window.showTextDocument(document, { preview: false });
+    this.panel.webview.postMessage({
+      type: "routingSaved",
+      message:
+        `已生成 .github/agents/${routing.AGENT_NAME}.agent.md，固定使用「${model.name}」。` +
+        "在聊天里用它委派子 Agent 即可。",
+    });
+  }
+
+  async writeInstructions() {
+    const folder = this.workspaceFolder();
+    const target = vscode.Uri.joinPath(folder.uri, ".github", "copilot-instructions.md");
+    let existing = "";
+    try {
+      existing = new TextDecoder().decode(await vscode.workspace.fs.readFile(target));
+    } catch {
+      // file does not exist yet — it gets created below
+    }
+    const block = routing.buildInstructions(
+      this.routableModels().map((model) => model.qualifiedName)
+    );
+    const merged = routing.mergeInstructions(existing, block);
+    if (merged === existing) {
+      this.panel.webview.postMessage({
+        type: "routingSaved",
+        message: "指令文件已是最新，无需修改。",
+      });
+      return;
+    }
+    await vscode.workspace.fs.writeFile(target, new TextEncoder().encode(merged));
+    const document = await vscode.workspace.openTextDocument(target);
+    await vscode.window.showTextDocument(document, { preview: false });
+    this.panel.webview.postMessage({
+      type: "routingSaved",
+      message: existing
+        ? "已更新 .github/copilot-instructions.md 中的路由段落。"
+        : "已创建 .github/copilot-instructions.md。",
+    });
   }
 
   async setKey(providerName) {
@@ -335,6 +465,7 @@ class ManagerPanel {
     </div>
   </header>
   <div id="content"></div>
+  <div id="routing"></div>
   <div class="savebar" id="savebar">
     <span class="hint">改完记得保存，保存后 Copilot 的模型列表会立即更新。</span>
     <button class="save">保存设置</button>

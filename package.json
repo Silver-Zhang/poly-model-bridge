@@ -2,7 +2,7 @@
   "name": "poly-model-bridge",
   "displayName": "Poly Model Bridge for Copilot",
   "description": "Bring third-party models into GitHub Copilot's model picker over Anthropic Messages, OpenAI Chat Completions, or OpenAI Responses protocols — with per-model reasoning effort variants, tool calling and vision.",
-  "version": "0.5.4",
+  "version": "0.6.1",
   "publisher": "silver-zhang",
   "author": {
     "name": "Silver-Zhang"
@@ -87,11 +87,25 @@
         "command": "polyBridge.manage",
         "title": "Poly Model Bridge: Open Manager (打开管理界面)",
         "icon": "$(settings-view-bar-icon)"
+      },
+      {
+        "command": "polyBridge.copyModelReference",
+        "title": "Poly Model Bridge: Copy Model Reference (复制模型引用名)"
       }
     ],
     "configuration": {
       "title": "Poly Model Bridge",
       "properties": {
+        "polyBridge.subagentModel": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Picker id of the model pinned into the generated `.github/agents/poly-subagent.agent.md`. Set from the manager's **Copilot 路由** panel; VS Code resolves a subagent's model as `runSubagent`'s `model` argument → the custom agent's `model:` frontmatter → the main session's model."
+        },
+        "polyBridge.subagentRedirect": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Send delegated subagent turns to `#polyBridge.subagentModel#` even when the main agent did not name an agent. VS Code has no setting for this: a `runSubagent` call without an `agentName` inherits the main session's model outright. PolyBridge detects the turn by its tool list — core removes the `runSubagent` tool inside a subagent unless `#chat.subagents.allowInvocationsFromSubagents#` is enabled — and swaps the upstream model only. **The chat UI still shows the inherited model name**; the real target is written to the PolyBridge output channel."
+        },
         "polyBridge.providers": {
           "type": "array",
           "default": [],
@@ -154,7 +168,11 @@
               },
               "usageMode": {
                 "type": "string",
-                "enum": ["auto", "on", "off"],
+                "enum": [
+                  "auto",
+                  "on",
+                  "off"
+                ],
                 "default": "auto",
                 "description": "Whether to request and report upstream token usage. Auto enables OpenAI stream usage and reports it when the gateway returns it."
               },
@@ -220,12 +238,19 @@
                     },
                     "usageMode": {
                       "type": "string",
-                      "enum": ["auto", "on", "off"],
+                      "enum": [
+                        "auto",
+                        "on",
+                        "off"
+                      ],
                       "description": "Per-model override for upstream usage reporting"
                     },
                     "tokenEstimator": {
                       "type": "string",
-                      "enum": ["conservative", "balanced"],
+                      "enum": [
+                        "conservative",
+                        "balanced"
+                      ],
                       "default": "conservative",
                       "description": "Token count estimation strategy. Conservative is safer for CJK, JSON, source code and tool output."
                     },
@@ -266,7 +291,7 @@
     }
   },
   "scripts": {
-    "check": "node --check extension.js && node --check provider.js && node --check protocols.js && node --check ui.js && node --check manager.js && node --check sidebar.js && node --check media/manager.js && node --test test/*.test.js",
+    "check": "node --check extension.js && node --check provider.js && node --check protocols.js && node --check routing.js && node --check ui.js && node --check manager.js && node --check sidebar.js && node --check media/manager.js && node --test test/*.test.js",
     "package": "vsce package",
     "publish": "vsce publish",
     "publish:openvsx": "ovsx publish"

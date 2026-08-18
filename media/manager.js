@@ -46,6 +46,8 @@ const CONTEXT_WINDOWS = [
 let providers = [];
 let keyStates = {};
 let dirty = false;
+let routing = null;
+let routableModels = [];
 
 function esc(value) {
   return String(value === undefined || value === null ? "" : value).replace(
@@ -311,11 +313,130 @@ function providerHtml(provider, providerIndex) {
 </section>`;
 }
 
+const UTILITY_MODES = [
+  {
+    value: "mainAgent",
+    label: "跟随主会话模型",
+    hint: "辅助调用直接复用你在模型选择器里选的 PolyBridge 模型。",
+  },
+  {
+    value: "model",
+    label: "指定一个模型",
+    hint: "辅助调用固定走下面选中的模型，适合挑一个便宜的型号专门干杂活。",
+  },
+  {
+    value: "none",
+    label: "禁止（宁可报错）",
+    hint: "不允许辅助调用走 Copilot 订阅；没有可用模型时直接报错，绝不静默扣额度。",
+  },
+  {
+    value: "copilot",
+    label: "使用 Copilot 订阅（VS Code 默认）",
+    hint: "保持 VS Code 出厂行为，辅助调用消耗 GitHub Copilot 订阅额度。",
+  },
+];
+
+function modelOptions(selected) {
+  const options = routableModels.map((model) =>
+    `<option value="${esc(model.pickerId)}" ${model.pickerId === selected ? "selected" : ""}>${esc(model.name)}</option>`
+  ).join("");
+  return `<option value="" ${selected ? "" : "selected"}>（未选择）</option>${options}`;
+}
+
+function routingHtml() {
+  if (!routing) return "";
+  if (!routableModels.length) {
+    return `<section class="card open routing">
+  <div class="card-head"><h2>Copilot 路由</h2></div>
+  <div class="card-body"><div class="hint">先添加并保存至少一个支持工具调用的模型，这里才能选择路由目标。</div></div>
+</section>`;
+  }
+
+  const modeBoxes = UTILITY_MODES.map((mode) =>
+    `<label class="radio ${routing.utility === mode.value ? "on" : ""}">
+      <input type="radio" name="utility" value="${mode.value}" ${routing.utility === mode.value ? "checked" : ""}>
+      <span class="radio-text"><strong>${esc(mode.label)}</strong><span class="hint">${esc(mode.hint)}</span></span>
+    </label>`
+  ).join("");
+
+  return `<section class="card open routing">
+  <div class="card-head"><h2>Copilot 路由</h2><span class="badge">避免误用订阅额度</span></div>
+  <div class="card-body">
+    <p class="muted">Copilot 有几类请求不走模型选择器，默认会落到 GitHub 订阅模型上。在这里一次设好，PolyBridge 会替你写进对应的 VS Code 设置。</p>
+
+    <div class="section">
+      <div class="section-title"><h3>辅助调用</h3></div>
+      <p class="hint">应用代码块（mapCode）、生成标题、压缩历史等后台请求。数量很多，是订阅额度的主要消耗来源。</p>
+      <div class="radio-grid">${modeBoxes}</div>
+      <div class="grid ${routing.utility === "model" ? "" : "disabled"}" id="utility-models">
+        <div class="field">
+          <label>辅助调用使用的模型</label>
+          <select data-routing="utilityModel">${modelOptions(routing.utilityModel)}</select>
+          <span class="hint">对应设置 <code>chat.utilityModel</code>。</span>
+        </div>
+        <div class="field">
+          <label>轻量辅助调用使用的模型</label>
+          <select data-routing="utilitySmallModel">${modelOptions(routing.utilitySmallModel)}</select>
+          <span class="hint">对应设置 <code>chat.utilitySmallModel</code>；留空则跟随上一项。</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><h3>内置子 Agent</h3></div>
+      <div class="grid">
+        <div class="field check-option">
+          <label><input type="checkbox" data-routing="executionSubagent" ${routing.executionSubagent === "inherit" ? "checked" : ""}> 执行子 Agent 继承主会话模型</label>
+          <span class="hint">不勾选时它固定使用 Copilot 的 gemini-3-flash，与你选的模型无关。</span>
+        </div>
+        <div class="field check-option">
+          <label><input type="checkbox" data-routing="searchSubagent" ${routing.searchSubagent === "inherit" ? "checked" : ""}> 搜索子 Agent 继承主会话模型</label>
+          <span class="hint">它本来就默认继承，勾上可以防止被远程实验配置改掉。</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><h3>子 Agent 使用的模型</h3></div>
+      <p class="hint">主 Agent 委派任务（runSubagent）时使用哪个模型。VS Code 的解析顺序是：调用时自带的 model 参数 &gt; 自定义 Agent 的 model 字段 &gt; 继承主会话。下面这一项写进自定义 Agent 文件，是客户端能做到的最强绑定。</p>
+      <div class="grid">
+        <div class="field">
+          <label>委派任务时使用</label>
+          <select data-routing="subagentModel">${modelOptions(routing.subagentModel)}</select>
+          <span class="hint">选好后点右边按钮生成 Agent 文件；之后在聊天里让主 Agent 用它委派即可。</span>
+        </div>
+        <div class="field">
+          <label>生成配置文件</label>
+          <div class="actions">
+            <button class="secondary" id="write-agent">生成子 Agent 文件</button>
+            <button class="secondary" id="write-instructions">写入项目指令</button>
+          </div>
+          <span class="hint">分别写入 <code>.github/agents/poly-subagent.agent.md</code> 和 <code>.github/copilot-instructions.md</code>。</span>
+        </div>
+      </div>
+      <div class="grid">
+        <div class="field check-option">
+          <label><input type="checkbox" data-routing="subagentRedirect" ${routing.subagentRedirect ? "checked" : ""}> 强制改道：主 Agent 没点名时也用上面这个模型</label>
+          <span class="hint">上面两个文件只在主 Agent 主动传 <code>agentName</code> 时才生效；不传时 VS Code 会直接继承主会话模型。勾上后，PolyBridge 在发请求前自行识别子 Agent 回合（其工具列表里没有 <code>runSubagent</code>），把上游模型换成你选的那个。<strong>注意 VS Code 界面仍会显示继承来的模型名</strong>，真实去向见 PolyBridge 输出面板。</span>
+        </div>
+      </div>
+      <p class="hint">注意：模型调用时如果自己传了 model 参数，优先级高于上面的设置，客户端无法强制拦截——而 VS Code 给模型看的工具说明里写着「vendor 通常是 copilot」，它因此容易选到订阅模型。项目指令就是用来抵消这句提示的。</p>
+      <p class="hint">另外，模型名里的「· 中转站名」后缀只在配置了多个中转站时才出现。VS Code 按完整字符串精确匹配，所以<strong>增删中转站之后，请回到这里重新生成上面两个文件</strong>，否则旧名字会匹配不上并悄悄退回主会话模型。</p>
+    </div>
+
+    <div class="actions routing-actions">
+      <button class="save" id="save-routing">保存路由设置</button>
+    </div>
+  </div>
+</section>`;
+}
+
 function render() {
   const content = document.getElementById("content");
   content.innerHTML = providers.length
     ? providers.map(providerHtml).join("")
     : `<div class="empty"><h2>还没有添加中转站</h2><p class="muted">添加一个中转站，把它提供的模型接入 Copilot。全部设置都在这个界面完成。</p><button id="empty-add">添加第一个中转站</button></div>`;
+  document.getElementById("routing").innerHTML = providers.length ? routingHtml() : "";
   document.getElementById("savebar").style.display = providers.length ? "flex" : "none";
   bind();
 }
@@ -370,7 +491,9 @@ function mutate(change) {
 }
 
 function bind() {
-  document.querySelectorAll("input,select,textarea").forEach((element) => {
+  // Scoped to #content: the routing panel saves separately, so edits there
+  // must not light up the provider save bar or the unsaved-changes guard.
+  document.querySelectorAll("#content input,#content select,#content textarea").forEach((element) => {
     element.addEventListener("input", () => { dirty = true; });
   });
   document.querySelectorAll("[data-context-preset]").forEach((select) => {
@@ -426,6 +549,63 @@ function bind() {
   });
   const emptyAdd = document.getElementById("empty-add");
   if (emptyAdd) emptyAdd.onclick = () => mutate(() => providers.push(defaultProvider()));
+  bindRouting();
+}
+
+/** Read routing controls back into `routing` without touching provider state. */
+const BOOLEAN_ROUTING_KEYS = new Set(["subagentRedirect"]);
+
+function syncRouting() {
+  if (!routing) return;
+  const panel = document.getElementById("routing");
+  const checked = panel.querySelector('input[name="utility"]:checked');
+  if (checked) routing.utility = checked.value;
+  panel.querySelectorAll("[data-routing]").forEach((element) => {
+    const key = element.dataset.routing;
+    if (element.type === "checkbox") {
+      // The built-in subagent toggles map onto a model name VS Code parses,
+      // where "" means inherit; this one is a plain PolyBridge boolean.
+      routing[key] = BOOLEAN_ROUTING_KEYS.has(key)
+        ? element.checked
+        : element.checked ? "inherit" : "default";
+    } else {
+      routing[key] = element.value;
+    }
+  });
+}
+
+function bindRouting() {
+  const panel = document.getElementById("routing");
+  if (!panel || !routing) return;
+  // Switching the utility mode toggles the model pickers, so re-render — but
+  // sync provider edits first so an in-progress form isn't discarded.
+  panel.querySelectorAll('input[name="utility"]').forEach((radio) => {
+    radio.addEventListener("change", () => {
+      sync();
+      syncRouting();
+      render();
+    });
+  });
+  const write = document.getElementById("write-instructions");
+  if (write) {
+    write.onclick = () => vscode.postMessage({ type: "writeInstructions" });
+  }
+  const writeAgent = document.getElementById("write-agent");
+  if (writeAgent) {
+    writeAgent.onclick = () => {
+      syncRouting();
+      // Persist the choice alongside the file, so reopening the panel shows it.
+      vscode.postMessage({ type: "saveRouting", routing });
+      vscode.postMessage({ type: "writeAgentFile", pickerId: routing.subagentModel });
+    };
+  }
+  const save = document.getElementById("save-routing");
+  if (save) {
+    save.onclick = () => {
+      syncRouting();
+      vscode.postMessage({ type: "saveRouting", routing });
+    };
+  }
 }
 
 function notice(text, isError) {
@@ -455,8 +635,12 @@ window.addEventListener("message", (event) => {
       models: (provider.models || []).map((model) => ({ ...model, _open: false })),
     }));
     keyStates = message.keyStates || {};
+    routing = message.routing || null;
+    routableModels = message.models || [];
     dirty = false;
     render();
+  } else if (message.type === "routingSaved") {
+    notice(message.message || "路由设置已保存。");
   } else if (message.type === "saved") {
     dirty = false;
     notice("已保存，模型列表已刷新。");

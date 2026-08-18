@@ -282,6 +282,44 @@ textarea { resize: vertical; font-family: var(--vscode-editor-font-family); }
   background: var(--vscode-sideBar-background);
 }
 
+/* Copilot routing panel — always expanded, so the head is not a toggle. */
+.routing .card-head { cursor: default; }
+.routing .card-head:hover { background: none; }
+.routing .card-body p { margin: 0 16px 4px; }
+.routing .section > .hint { display: block; margin-bottom: 10px; }
+.routing code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: var(--vscode-textCodeBlock-background);
+}
+
+.radio-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 12px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.radio:hover { background: var(--vscode-list-hoverBackground); }
+.radio.on { border-color: var(--vscode-focusBorder); }
+.radio input { width: auto; margin: 2px 0 0; }
+.radio-text { display: flex; flex-direction: column; gap: 3px; }
+.radio-text strong { font-size: 12px; }
+
+.grid.disabled { opacity: 0.45; pointer-events: none; }
+.routing-actions { padding: 0 16px 18px; }
+
 @media (max-width: 720px) {
   .shell { padding: 18px 14px 60px; }
   .grid { grid-template-columns: 1fr; }

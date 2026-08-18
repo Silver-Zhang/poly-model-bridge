@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.6.1
+
+针对 0.6.0 的实测问题：选好子 Agent 模型后，委派任务仍然使用主会话模型。
+
+根因不在写入，而在生效条件。`.github/agents/poly-subagent.agent.md` 里的 `model:` 只在主 Agent 主动传 `agentName` 时才被读取；不传时 VS Code 走的是 `resolveSubagentModel(void 0, currentModelId, undefined)`，第一个参数写死为空，直接返回主会话模型。而 `runSubagent` 的工具说明只写了「Optional name of a specific agent to invoke. If not provided, uses the current agent.」，并不要求模型点名。
+
+- 新增 `polyBridge.subagentRedirect`（默认关闭）：由 PolyBridge 自行识别子 Agent 回合并改写上游模型，不依赖模型点名，也不修改 VS Code 核心文件。识别依据是工具列表——`chat.subagents.allowInvocationsFromSubagents` 默认为 `false`，因此子 Agent 的工具列表里没有 `runSubagent`。无工具的请求视为辅助调用，交给 `chat.utilityModel`，不在此处改道。
+- 该选项只改上游请求，**VS Code 界面仍显示继承来的模型名**，实际去向记录在 PolyBridge 输出面板。
+- 生成的项目指令改用 Copilot 自身在 skills 提示中使用的 `BLOCKING REQUIREMENT` 句式，原先「优先通过……委派」的措辞过弱。
+- 生成的 Agent `description` 改为声明自己是唯一委派目标——该字段是模型从系统提示的 `<agents>` 列表中选择时唯一可见的依据。
+
+## 0.6.0
+
+新增 **Copilot 路由** 面板：Copilot 有几类请求不走模型选择器，默认落在 GitHub 订阅模型上，现在可以在管理界面里统一指定。
+
+- 辅助调用（应用代码块 mapCode、生成标题、压缩历史等）可选择跟随主会话模型、指定某个 PolyBridge 模型、禁止（宁可报错）或保持 VS Code 默认，写入 `chat.byokUtilityModelDefault` / `chat.utilityModel` / `chat.utilitySmallModel`。
+- 内置执行 / 搜索子 Agent 可设为继承主会话模型，写入 `github.copilot.chat.executionSubagent.model` / `searchSubagent.model`。执行子 Agent 默认固定使用 Copilot 的 `gemini-3-flash`，与所选模型无关。
+- 子 Agent（`runSubagent`）可指定模型，一键生成 `.github/agents/poly-subagent.agent.md`；并可写入 `.github/copilot-instructions.md`，抵消工具说明中「vendor 通常是 copilot」的提示。该指令段落在标记之间幂等更新，不影响文件其余内容。
+- 新增命令 **Copy Model Reference（复制模型引用名）**，输出 `<名称> (poly-bridge)` 与 `poly-bridge/<id>` 两种形式。
+- 模型内部 id 的分隔符由不可见的 U+001F 改为 `::`，使其可读、可手写进 `chat.utilityModel`。**升级后请在 Copilot 模型选择器中重新选择一次模型。** 中转站名称不再允许包含 `::`。
+
+已知限制：内置执行 / 搜索子 Agent 的模型名只在 CAPI 中解析，无法指向 BYOK 模型，因此只提供「继承主会话」；`runSubagent` 调用时自带的 `model` 参数优先级最高，客户端无法拦截，只能通过上述指令引导。
+
 ## 0.5.4
 
 - 修复中转站不返回 usage 时 Copilot 上下文用量仍显示 `0`：现在会根据最终请求体与流式输出进行保守估算并上报。

@@ -16,6 +16,9 @@ Module._load = function (request, parent, isMain) {
       workspace: { getConfiguration: () => ({
         get: () => configuredProviders,
         update: async (_key, value) => { configuredProviders = value; },
+        // routing.readRouting() inspects Copilot/core settings; none are
+        // registered under the shim, which is the "nothing configured" case.
+        inspect: () => undefined,
       }) },
       ConfigurationTarget: { Global: 1 },
       Uri: { joinPath: () => ({}) },
@@ -60,6 +63,7 @@ test("manager migrates API Key when a provider is renamed", async () => {
     chatProvider: { refresh() {} },
     panel: { webview: { postMessage: async () => {} } },
     sendState: ManagerPanel.prototype.sendState,
+    routableModels: ManagerPanel.prototype.routableModels,
   };
   await ManagerPanel.prototype.save.call(manager, [{
     name: "New Relay",
@@ -110,6 +114,14 @@ test("manager rejects duplicate provider names", () => {
     { name: "same", baseUrl: "https://one.example", models: [] },
     { name: "same", baseUrl: "https://two.example", models: [] },
   ]), /名称重复/);
+});
+
+test("manager rejects provider names containing the picker-id separator", () => {
+  // Allowing "::" inside a name would make `provider::model::effort` ambiguous
+  // and break the `chat.utilityModel` reference built from it.
+  assert.throws(() => sanitizeProviders([
+    { name: "my::relay", baseUrl: "https://example.com", models: [] },
+  ]), /不能包含/);
 });
 
 test("manager rejects duplicate model ids", () => {

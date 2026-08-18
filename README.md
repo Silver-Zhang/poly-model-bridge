@@ -19,6 +19,7 @@ Poly Model Bridge 是一个轻量的本地 VS Code 扩展，适用于 Anthropic�
 - **API Key 安全存储**：使用 VS Code SecretStorage，不写入 settings.json，也不会发送到 Webview
 - **自动发现模型**：可以从中转站的模型列表接口读取可用模型
 - **中转站重命名自动迁移密钥**：避免修改名称后丢失 API Key
+- **Copilot 路由**：把子 Agent 和后台辅助请求也指向中转站模型，避免误用 Copilot 订阅额度
 
 ## 🚀 快速开始
 
@@ -101,6 +102,25 @@ Poly Model Bridge 是一个轻量的本地 VS Code 扩展，适用于 Anthropic�
 此时可以将中转站或模型的缓存时长设置为 `1h`。Poly Model Bridge 会在最后一个工具上明确发送相同的缓存时长，让支持保留客户端参数的网关正确处理。
 
 默认值是 `off`，适合普通 Anthropic API 或不会改写缓存的中转站。只有遇到缓存冲突时才建议调整。
+
+## 🧭 Copilot 路由（避免误用订阅额度）
+
+在模型选择器里选中中转站模型，只决定**主对话**用什么模型。Copilot 还有几类请求走的是另一套解析逻辑，默认会落到 GitHub 订阅模型上：
+
+| 请求类型 | 默认行为 | 能否指向中转站 |
+| --- | --- | --- |
+| 后台辅助调用（应用代码块、生成标题、压缩历史等） | 使用 Copilot 订阅 | ✅ 可以，数量最多、影响最大 |
+| 内置执行子 Agent | 固定使用 `gemini-3-flash` | ⚠️ 只能设为继承主会话模型 |
+| 内置搜索子 Agent | 继承主会话模型 | ⚠️ 只能设为继承主会话模型 |
+| 子 Agent 委派（`runSubagent`） | 继承主会话，但模型可自行指定 | ✅ 可指定，但模型可覆盖 |
+
+打开管理界面的 **Copilot 路由** 面板即可统一设置，PolyBridge 会写入对应的 VS Code 设置。
+
+关于子 Agent：VS Code 解析顺序是 **调用时自带的 `model` 参数 → 自定义 Agent 的 `model:` 字段 → 继承主会话**。面板里选好模型后点「生成子 Agent 文件」，会写出 `.github/agents/poly-subagent.agent.md`。
+
+需要注意的是，模型在调用 `runSubagent` 时可以自带 `model` 参数，其优先级高于一切，客户端无法拦截；而 VS Code 给模型看的工具说明里写着 *vendor is usually "copilot"*，模型因此很容易选到订阅模型。「写入项目指令」按钮会在 `.github/copilot-instructions.md` 中生成一段说明来抵消这个倾向——这是引导，不是强制。若要彻底杜绝，可在自定义 Agent 中设置 `agents: []` 关闭子 Agent 能力。
+
+由于 VS Code 按完整字符串精确匹配模型名，而「· 中转站名」后缀只在配置了多个中转站时出现，**增删中转站之后请重新生成上述文件**。命令 **Copy Model Reference（复制模型引用名）** 可以随时取到当前的正确写法。
 
 ## ⚙️ 高级 JSON 配置
 

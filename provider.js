@@ -9,7 +9,11 @@ const {
 } = require("./context");
 
 const VENDOR = "poly-bridge";
-const SEP = "\u001F"; // internal picker-id separator: provider SEP model SEP effort
+// Picker-id separator: provider SEP model SEP effort. Kept printable so the id
+// can be hand-written into VS Code's `chat.utilityModel` (whose format is
+// `vendor/id`) and read back out of settings.json. sanitizeProvider rejects
+// provider names containing it, keeping the three-part id unambiguous.
+const SEP = "::";
 
 function keySecretId(providerName) {
   return "polyBridge.apiKey::" + providerName;
@@ -21,6 +25,54 @@ function getProviders() {
   return providers.filter(
     (p) => p && p.name && p.baseUrl && Array.isArray(p.models)
   );
+}
+
+/**
+ * Whether this request is a delegated subagent turn.
+ *
+ * VS Code has no setting for the model a `runSubagent` call uses. With no
+ * `agentName` argument core calls `resolveSubagentModel(void 0, currentModelId,
+ * undefined)`, which returns the main session's model outright, so the request
+ * reaches us indistinguishable from the main turn — same picker id, same
+ * `requestInitiator` (the Copilot extension either way).
+ *
+ * The tool list is the one signal that survives. Core disables the runSubagent
+ * tool inside a subagent unless `chat.subagents.allowInvocationsFromSubagents`
+ * is on, and that setting defaults to false:
+ *
+ *   let W = F ? S7n : 0;      // F = the setting
+ *   let Q = G + 1 <= W;       // false when W is 0
+ *   g[zK.Id] = Q;             // runSubagent removed from the subagent's tools
+ *
+ * So an agentic request that cannot itself delegate is a subagent turn.
+ * Deliberately conservative: a request with no tools at all is a utility call
+ * (titles, mapCode, summaries), which `chat.utilityModel` already routes, so it
+ * is left alone here. If the user turns nested subagents on, the signal
+ * disappears and this silently degrades to plain inheritance.
+ */
+function isSubagentRequest(options) {
+  const tools = options && options.tools;
+  if (!Array.isArray(tools) || tools.length === 0) {
+    return false;
+  }
+  return !tools.some((tool) => /subagent/i.test((tool && tool.name) || ""));
+}
+
+/**
+ * Swap in the configured subagent model for a delegated turn. Returns `entry`
+ * unchanged whenever the redirect is off, not applicable, or points at a model
+ * that no longer exists — a stale picker id must not break the request.
+ */
+function resolveSubagentEntry(entry, options, entries) {
+  const cfg = vscode.workspace.getConfiguration("polyBridge");
+  if (cfg.get("subagentRedirect") !== true) {
+    return entry;
+  }
+  const target = cfg.get("subagentModel");
+  if (!target || target === entry.pickerId || !isSubagentRequest(options)) {
+    return entry;
+  }
+  return entries.find((e) => e.pickerId === target) || entry;
 }
 
 function isSystemRole(role) {
@@ -116,15 +168,22 @@ function enumerateModels() {
         const suffix =
           (effort ? " (" + effort + ")" : "") +
           (multi ? " · " + provider.name : "");
+        const pickerId = provider.name + SEP + model.id + SEP + (effort || "");
+        const displayName = baseName + suffix;
         entries.push({
-          pickerId: provider.name + SEP + model.id + SEP + (effort || ""),
+          pickerId,
           provider,
           model,
           effort: effort || undefined,
           apiType: model.apiType || provider.apiType || "anthropic",
+          // How other VS Code features address this model:
+          //   qualifiedName -> `.agent.md` frontmatter `model:` and instructions
+          //   utilityRef    -> `chat.utilityModel` / `chat.utilitySmallModel`
+          qualifiedName: displayName + " (" + VENDOR + ")",
+          utilityRef: VENDOR + "/" + pickerId,
           info: {
-            id: provider.name + SEP + model.id + SEP + (effort || ""),
-            name: baseName + suffix,
+            id: pickerId,
+            name: displayName,
             family:
               (model.apiType || provider.apiType || "anthropic") === "anthropic"
                 ? "claude"
@@ -233,10 +292,19 @@ class PolyBridgeProvider {
   }
 
   async provideLanguageModelChatResponse(model, messages, options, progress, token) {
-    const entry = enumerateModels().find((e) => e.pickerId === model.id);
-    if (!entry) {
+    const entries = enumerateModels();
+    const selected = entries.find((e) => e.pickerId === model.id);
+    if (!selected) {
       throw new Error(
         "Poly Model Bridge: model not found in settings (was the configuration changed?)."
+      );
+    }
+    // VS Code still believes this turn runs on `selected`; only the upstream
+    // call is redirected, so the chat UI keeps showing the inherited name.
+    const entry = resolveSubagentEntry(selected, options, entries);
+    if (entry !== selected) {
+      this._output?.appendLine(
+        `[PolyBridge] subagent turn detected: ${selected.pickerId} -> ${entry.pickerId}`
       );
     }
     const { provider, apiType, effort } = entry;
@@ -392,4 +460,12 @@ class PolyBridgeProvider {
   }
 }
 
-module.exports = { PolyBridgeProvider, VENDOR, getProviders };
+module.exports = {
+  PolyBridgeProvider,
+  VENDOR,
+  SEP,
+  getProviders,
+  enumerateModels,
+  isSubagentRequest,
+  resolveSubagentEntry,
+};
