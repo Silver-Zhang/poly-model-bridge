@@ -48,6 +48,8 @@ let keyStates = {};
 let dirty = false;
 let routing = null;
 let routableModels = [];
+/** Copilot CLI card state. The snippet is rendered by the extension host. */
+let cli = { pickerId: "", shell: "pwsh", snippet: "", warnings: [] };
 
 function esc(value) {
   return String(value === undefined || value === null ? "" : value).replace(
@@ -431,12 +433,81 @@ function routingHtml() {
 </section>`;
 }
 
+const CLI_SHELLS = [
+  { value: "pwsh", label: "PowerShell" },
+  { value: "bash", label: "bash / zsh" },
+  { value: "cmd", label: "cmd" },
+];
+
+function cliHtml() {
+  if (!routableModels.length) {
+    return `<section class="card open routing">
+  <div class="card-head"><h2>Copilot CLI</h2></div>
+  <div class="card-body"><div class="hint">先添加并保存至少一个支持工具调用的模型，这里才能生成 CLI 配置。</div></div>
+</section>`;
+  }
+
+  const modelPicks = routableModels.map((model) =>
+    `<option value="${esc(model.pickerId)}" ${model.pickerId === cli.pickerId ? "selected" : ""}>${esc(model.name)}</option>`
+  ).join("");
+  const shellPicks = CLI_SHELLS.map((item) =>
+    `<option value="${item.value}" ${item.value === cli.shell ? "selected" : ""}>${esc(item.label)}</option>`
+  ).join("");
+
+  return `<section class="card open routing cli">
+  <div class="card-head"><h2>Copilot CLI</h2><span class="badge">终端里也用中转站</span></div>
+  <div class="card-body">
+    <p class="muted">终端里的 <code>copilot</code> 是独立进程，看不到 VS Code 里注册的模型。好在它自带 BYOK，认的三种协议和这里配的完全一致，所以 PolyBridge 把中转站翻译成一组环境变量交给它就行。</p>
+
+    <div class="section">
+      <div class="section-title"><h3>启动配置</h3></div>
+      <div class="grid">
+        <div class="field">
+          <label>CLI 使用的模型</label>
+          <select data-cli="pickerId">${modelPicks}</select>
+          <span class="hint">只列出支持工具调用的模型——CLI 强制要求工具调用和流式输出。</span>
+        </div>
+        <div class="field">
+          <label>复制片段用的 shell</label>
+          <select data-cli="shell">${shellPicks}</select>
+          <span class="hint">只影响「复制环境变量」的写法，「在终端启动」不受影响。</span>
+        </div>
+      </div>
+      <div class="actions routing-actions">
+        <button class="save" id="launch-cli">在终端启动</button>
+        <button class="secondary" id="copy-cli">复制环境变量</button>
+      </div>
+      <p class="hint">「在终端启动」会新开一个终端，把变量注入该进程后运行 <code>copilot</code>，API key 只存在于这个终端里。「复制环境变量」出于安全考虑把 key 换成占位符，粘贴后请自行替换。</p>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><h3>将要设置的变量</h3></div>
+      <pre class="snippet" id="cli-snippet">${esc(cli.snippet)}</pre>
+      <div id="cli-warnings">${cliWarningsHtml()}</div>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><h3>两个限制</h3></div>
+      <p class="hint"><strong>一个终端只能用一个模型。</strong>CLI 配了自定义 provider 之后模型列表为空，会话中途的 <code>/model</code> 切换用不了。要换模型就回到这里重新启动一个终端。</p>
+      <p class="hint"><strong>该终端里 GitHub 自带模型不再可用。</strong>设了自定义端点之后所有请求都走中转站，每月的 AI Credits 也不会被消耗——这既是省额度的办法，也意味着订阅模型在这个终端里用不了。</p>
+      <p class="hint">好消息是 CLI 内置的子 Agent（explore / task / code-review）会自动继承这套配置，不像插件那边还要单独指定。</p>
+    </div>
+  </div>
+</section>`;
+}
+
+function cliWarningsHtml() {
+  if (!cli.warnings.length) return "";
+  return `<ul class="warnings">${cli.warnings.map((text) => `<li>${esc(text)}</li>`).join("")}</ul>`;
+}
+
 function render() {
   const content = document.getElementById("content");
   content.innerHTML = providers.length
     ? providers.map(providerHtml).join("")
     : `<div class="empty"><h2>还没有添加中转站</h2><p class="muted">添加一个中转站，把它提供的模型接入 Copilot。全部设置都在这个界面完成。</p><button id="empty-add">添加第一个中转站</button></div>`;
   document.getElementById("routing").innerHTML = providers.length ? routingHtml() : "";
+  document.getElementById("cli").innerHTML = providers.length ? cliHtml() : "";
   document.getElementById("savebar").style.display = providers.length ? "flex" : "none";
   bind();
 }
@@ -550,6 +621,35 @@ function bind() {
   const emptyAdd = document.getElementById("empty-add");
   if (emptyAdd) emptyAdd.onclick = () => mutate(() => providers.push(defaultProvider()));
   bindRouting();
+  bindCli();
+}
+
+function requestCliPreview() {
+  if (!cli.pickerId) return;
+  vscode.postMessage({ type: "cliPreview", pickerId: cli.pickerId, shell: cli.shell });
+}
+
+function bindCli() {
+  const panel = document.getElementById("cli");
+  if (!panel) return;
+  panel.querySelectorAll("[data-cli]").forEach((element) => {
+    element.addEventListener("change", () => {
+      cli[element.dataset.cli] = element.value;
+      // Only the preview changes, so patch it in place rather than re-rendering
+      // — a full render would rebuild the provider cards and drop focus.
+      requestCliPreview();
+    });
+  });
+  const launch = document.getElementById("launch-cli");
+  if (launch) {
+    launch.onclick = () =>
+      vscode.postMessage({ type: "launchCli", pickerId: cli.pickerId });
+  }
+  const copy = document.getElementById("copy-cli");
+  if (copy) {
+    copy.onclick = () =>
+      vscode.postMessage({ type: "copyCliEnv", pickerId: cli.pickerId, shell: cli.shell });
+  }
 }
 
 /** Read routing controls back into `routing` without touching provider state. */
@@ -637,8 +737,24 @@ window.addEventListener("message", (event) => {
     keyStates = message.keyStates || {};
     routing = message.routing || null;
     routableModels = message.models || [];
+    if (message.cliShell) cli.shell = message.cliShell;
+    // Keep the chosen model across saves, but fall back when it was renamed
+    // or removed — its picker id embeds the provider and model names.
+    if (!routableModels.some((model) => model.pickerId === cli.pickerId)) {
+      cli.pickerId = routableModels.length ? routableModels[0].pickerId : "";
+      cli.snippet = "";
+      cli.warnings = [];
+    }
     dirty = false;
     render();
+    requestCliPreview();
+  } else if (message.type === "cliPreview") {
+    cli.snippet = message.snippet || "";
+    cli.warnings = message.warnings || [];
+    const snippet = document.getElementById("cli-snippet");
+    const warnings = document.getElementById("cli-warnings");
+    if (snippet) snippet.textContent = cli.snippet;
+    if (warnings) warnings.innerHTML = cliWarningsHtml();
   } else if (message.type === "routingSaved") {
     notice(message.message || "路由设置已保存。");
   } else if (message.type === "saved") {

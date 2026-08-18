@@ -131,3 +131,35 @@ test("manager rejects duplicate model ids", () => {
     models: [{ id: "same" }, { id: "same" }],
   }]), /重复模型/);
 });
+test("the CLI preview is built without ever reading a stored key", () => {
+  configuredProviders = [{
+    name: "relay",
+    baseUrl: "https://gw.example.com",
+    apiType: "chat-completions",
+    models: [{ id: "gpt-5" }],
+  }];
+  const sent = [];
+  const manager = {
+    // No `context.secrets` at all: the preview substitutes a placeholder, so
+    // touching SecretStorage here would throw rather than leak silently.
+    panel: { webview: { postMessage: (message) => sent.push(message) } },
+    sendCliPreview: ManagerPanel.prototype.sendCliPreview,
+  };
+  manager.sendCliPreview("relay::gpt-5::", "bash");
+
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].snippet, /export COPILOT_PROVIDER_BASE_URL='https:\/\/gw\.example\.com\/v1'/);
+  assert.match(sent[0].snippet, /export COPILOT_PROVIDER_API_KEY='YOUR_API_KEY_HERE'/);
+  assert.ok(sent[0].warnings.length > 0);
+});
+
+test("a stale picker id clears the preview instead of throwing", () => {
+  configuredProviders = [];
+  const sent = [];
+  const manager = {
+    panel: { webview: { postMessage: (message) => sent.push(message) } },
+    sendCliPreview: ManagerPanel.prototype.sendCliPreview,
+  };
+  manager.sendCliPreview("gone::gone::", "bash");
+  assert.equal(sent[0].snippet, "");
+});

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.0
+
+新增 **Copilot CLI** 支持：终端里的 `copilot` 也能用同一批中转站模型。
+
+此前 PolyBridge 只覆盖 VS Code 里的 Copilot 扩展——它靠 `vscode.lm.registerLanguageModelChatProvider` 注册，是进程内 API，终端里的独立进程拿不到。所幸 Copilot CLI 自带 BYOK，且认的三种协议和 PolyBridge 完全一致，因此这里做的是配置翻译，不是协议中转：不起本地代理，没有常驻进程，VS Code 关掉之后终端照样能用。
+
+- 管理界面新增 **Copilot CLI** 面板：选模型、选 shell、预览将要设置的变量（预览里的 API key 始终是占位符，不读取 SecretStorage）。
+- 新增命令 **Launch Copilot CLI（在终端启动 Copilot CLI）**：新开终端注入变量并运行 `copilot`，API key 只存在于该终端进程，不写入任何文件。
+- 新增命令 **Copy Copilot CLI Env（复制 Copilot CLI 环境变量）**：支持 PowerShell / bash / cmd 三种写法，**API key 替换为占位符**，避免明文密钥进入聊天记录、笔记或仓库。
+- 新增终端配置文件 **Copilot CLI (PolyBridge)**，可从终端面板的 `+` 下拉直接启动。
+- 认证方式、自定义请求头、上下文长度、输出上限和推理强度都会一并翻译过去；PolyBridge 侧不生效的能力（上下文裁剪、工具输出截断、用量统计、Anthropic 缓存兼容）会在面板和输出日志里逐条说明，而不是静默丢掉。
+- 未安装 CLI 时给出 `npm install -g @github/copilot` 提示和文档链接，不自动执行安装。
+
+两个限制来自 CLI 本身，无法在客户端绕过：配了自定义 provider 后 CLI 的模型列表为空，会话中途的 `/model` 切换用不了（换模型请开新终端）；设了自定义端点后所有请求都走中转站，该终端里 GitHub 自带模型和每月 AI Credits 都不再可用。好消息是 CLI 内置的子 Agent（explore / task / code-review）会自动继承这套配置，不存在 0.6.1 里那种委派任务不认模型的问题。
+
 ## 0.6.1
 
 针对 0.6.0 的实测问题：选好子 Agent 模型后，委派任务仍然使用主会话模型。

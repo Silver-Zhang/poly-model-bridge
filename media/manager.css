@@ -320,6 +320,32 @@ textarea { resize: vertical; font-family: var(--vscode-editor-font-family); }
 .grid.disabled { opacity: 0.45; pointer-events: none; }
 .routing-actions { padding: 0 16px 18px; }
 
+/* Copilot CLI panel — the snippet is read-only, selectable for manual copying. */
+.cli .routing-actions { padding: 14px 0 4px; }
+.snippet {
+  margin: 0 0 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 7px;
+  background: var(--vscode-textCodeBlock-background);
+  font-family: var(--vscode-editor-font-family);
+  font-size: 11px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+.snippet:empty { display: none; }
+
+.warnings {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--vscode-descriptionForeground);
+}
+.warnings li { margin-bottom: 4px; }
+
 @media (max-width: 720px) {
   .shell { padding: 18px 14px 60px; }
   .grid { grid-template-columns: 1fr; }

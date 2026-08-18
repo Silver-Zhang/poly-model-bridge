@@ -20,6 +20,7 @@ Poly Model Bridge 是一个轻量的本地 VS Code 扩展，适用于 Anthropic�
 - **自动发现模型**：可以从中转站的模型列表接口读取可用模型
 - **中转站重命名自动迁移密钥**：避免修改名称后丢失 API Key
 - **Copilot 路由**：把子 Agent 和后台辅助请求也指向中转站模型，避免误用 Copilot 订阅额度
+- **Copilot CLI**：终端里的 `copilot` 也能用同一批中转站模型，一键启动或复制环境变量
 
 ## 🚀 快速开始
 
@@ -121,6 +122,39 @@ Poly Model Bridge 是一个轻量的本地 VS Code 扩展，适用于 Anthropic�
 需要注意的是，模型在调用 `runSubagent` 时可以自带 `model` 参数，其优先级高于一切，客户端无法拦截；而 VS Code 给模型看的工具说明里写着 *vendor is usually "copilot"*，模型因此很容易选到订阅模型。「写入项目指令」按钮会在 `.github/copilot-instructions.md` 中生成一段说明来抵消这个倾向——这是引导，不是强制。若要彻底杜绝，可在自定义 Agent 中设置 `agents: []` 关闭子 Agent 能力。
 
 由于 VS Code 按完整字符串精确匹配模型名，而「· 中转站名」后缀只在配置了多个中转站时出现，**增删中转站之后请重新生成上述文件**。命令 **Copy Model Reference（复制模型引用名）** 可以随时取到当前的正确写法。
+
+## 💻 Copilot CLI
+
+终端里的 `copilot` 命令是一个独立进程，看不到扩展在 VS Code 内注册的模型。好在它自带 BYOK，认的三种协议和这里配的完全一致，所以 PolyBridge 不需要做协议中转，只要把中转站翻译成一组环境变量交给它。
+
+在管理界面的 **Copilot CLI** 面板里选好模型，两个按钮：
+
+- **在终端启动**：新开一个终端，把变量注入该进程后运行 `copilot`。API key 只存在于这个终端进程里，不写入任何文件。
+- **复制环境变量**：按 PowerShell / bash / cmd 的写法复制到剪贴板，**API key 会被替换成占位符**，粘贴后自行替换——避免明文密钥进入聊天记录、笔记或仓库。
+
+也可以从终端面板的 `+` 下拉里直接选 **Copilot CLI (PolyBridge)**。
+
+PolyBridge 生成的变量（未配置的项一律不设，由 CLI 用自己的默认值）：
+
+| 变量 | 来源 |
+| --- | --- |
+| `COPILOT_PROVIDER_BASE_URL` | 中转站地址，按协议还原成 CLI 需要的根地址 |
+| `COPILOT_PROVIDER_TYPE` | Anthropic 协议为 `anthropic`，两种 OpenAI 协议为 `openai` |
+| `COPILOT_PROVIDER_WIRE_API` | 仅 Responses 协议设为 `responses` |
+| `COPILOT_MODEL` | 模型 ID |
+| `COPILOT_PROVIDER_API_KEY` / `..._BEARER_TOKEN` | 按中转站的认证方式二选一 |
+| `COPILOT_PROVIDER_HEADERS` | 自定义请求头 |
+| `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` / `..._MAX_OUTPUT_TOKENS` | 上下文长度 / 输出上限 |
+| `COPILOT_AGENT_REASONING_EFFORT` | 推理强度 |
+
+两个来自 CLI 本身的限制：
+
+- **一个终端只能用一个模型。** 配了自定义 provider 之后 CLI 的模型列表为空，会话中途的 `/model` 切换用不了。换模型请回到面板重新启动一个终端。
+- **该终端里 GitHub 自带模型不再可用。** 设了自定义端点之后所有请求都走中转站，每月的 AI Credits 也不会被消耗——既是省额度的办法，也意味着订阅模型在这个终端里用不了。
+
+另外，PolyBridge 在插件侧做的上下文裁剪、工具输出截断、用量统计和 Anthropic 缓存兼容都不参与 CLI 的请求——CLI 直连中转站，上下文由它自己管理。相对地，CLI 内置的子 Agent（explore / task / code-review）会自动继承这套配置，不像插件那边还要单独指定。
+
+没装 CLI 的话，命令会提示 `npm install -g @github/copilot`，不会自动执行安装。
 
 ## ⚙️ 高级 JSON 配置
 

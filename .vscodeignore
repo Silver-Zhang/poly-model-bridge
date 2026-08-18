@@ -1,6 +1,9 @@
 .gitignore
 .vscodeignore
 .vscode/**
+# Output of the manager's routing panel, generated against whatever providers
+# happen to be configured locally — it must not ride along in the package.
+.github/**
 build-vsix.sh
 icon.svg
 node_modules/**

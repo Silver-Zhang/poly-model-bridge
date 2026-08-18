@@ -2,7 +2,7 @@
   "name": "poly-model-bridge",
   "displayName": "Poly Model Bridge for Copilot",
   "description": "Bring third-party models into GitHub Copilot's model picker over Anthropic Messages, OpenAI Chat Completions, or OpenAI Responses protocols — with per-model reasoning effort variants, tool calling and vision.",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "publisher": "silver-zhang",
   "author": {
     "name": "Silver-Zhang"
@@ -91,8 +91,25 @@
       {
         "command": "polyBridge.copyModelReference",
         "title": "Poly Model Bridge: Copy Model Reference (复制模型引用名)"
+      },
+      {
+        "command": "polyBridge.launchCopilotCli",
+        "title": "Poly Model Bridge: Launch Copilot CLI (在终端启动 Copilot CLI)"
+      },
+      {
+        "command": "polyBridge.copyCopilotCliEnv",
+        "title": "Poly Model Bridge: Copy Copilot CLI Env (复制 Copilot CLI 环境变量)"
       }
     ],
+    "terminal": {
+      "profiles": [
+        {
+          "id": "polyBridge.copilotCli",
+          "title": "Copilot CLI (PolyBridge)",
+          "icon": "$(plug)"
+        }
+      ]
+    },
     "configuration": {
       "title": "Poly Model Bridge",
       "properties": {
@@ -291,7 +308,7 @@
     }
   },
   "scripts": {
-    "check": "node --check extension.js && node --check provider.js && node --check protocols.js && node --check routing.js && node --check ui.js && node --check manager.js && node --check sidebar.js && node --check media/manager.js && node --test test/*.test.js",
+    "check": "node --check extension.js && node --check provider.js && node --check protocols.js && node --check routing.js && node --check cli.js && node --check context.js && node --check ui.js && node --check manager.js && node --check sidebar.js && node --check media/manager.js && node --test test/*.test.js",
     "package": "vsce package",
     "publish": "vsce publish",
     "publish:openvsx": "ovsx publish"

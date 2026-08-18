@@ -3,6 +3,7 @@ const vscode = require("vscode");
 const { resolveEndpoint } = require("./protocols");
 const { SEP, enumerateModels } = require("./provider");
 const routing = require("./routing");
+const { planCliEnv, formatEnvSnippet, KEY_PLACEHOLDER } = require("./cli");
 
 const API_TYPES = new Set(["anthropic", "chat-completions", "responses"]);
 const CACHE_TTLS = new Set(["off", "5m", "1h"]);
@@ -227,6 +228,7 @@ class ManagerPanel {
       keyStates,
       routing: routing.readRouting(),
       models: this.routableModels(),
+      cliShell: process.platform === "win32" ? "pwsh" : "bash",
     });
   }
 
@@ -272,6 +274,22 @@ class ManagerPanel {
           break;
         case "writeAgentFile":
           await this.writeAgentFile(message.pickerId);
+          break;
+        case "cliPreview":
+          this.sendCliPreview(message.pickerId, message.shell);
+          break;
+        case "launchCli":
+          await vscode.commands.executeCommand(
+            "polyBridge.launchCopilotCli",
+            message.pickerId
+          );
+          break;
+        case "copyCliEnv":
+          await vscode.commands.executeCommand(
+            "polyBridge.copyCopilotCliEnv",
+            message.pickerId,
+            message.shell
+          );
           break;
         default:
           break;
@@ -335,6 +353,32 @@ class ManagerPanel {
       message: notes.join("\n") || undefined,
     });
     await this.sendState();
+  }
+
+  /**
+   * Preview the environment a `copilot` process would get for a model.
+   *
+   * The placeholder stands in for the real key throughout, so SecretStorage is
+   * never read here and nothing sensitive reaches the Webview — the preview
+   * still shows the right set of variables, because which credential variable
+   * is used depends on the provider's auth style, not on the key itself.
+   */
+  sendCliPreview(pickerId, shell) {
+    const entry = enumerateModels().find((item) => item.pickerId === pickerId);
+    if (!entry) {
+      this.panel.webview.postMessage({ type: "cliPreview", snippet: "", warnings: [] });
+      return;
+    }
+    const { env, warnings } = planCliEnv(
+      entry,
+      entry.provider.requiresApiKey === false ? "" : KEY_PLACEHOLDER
+    );
+    this.panel.webview.postMessage({
+      type: "cliPreview",
+      pickerId,
+      snippet: formatEnvSnippet(env, shell, { maskKey: true }),
+      warnings,
+    });
   }
 
   workspaceFolder() {
@@ -469,6 +513,7 @@ class ManagerPanel {
   </header>
   <div id="content"></div>
   <div id="routing"></div>
+  <div id="cli"></div>
   <div class="savebar" id="savebar">
     <span class="hint">改完记得保存，保存后 Copilot 的模型列表会立即更新。</span>
     <button class="save">保存设置</button>
