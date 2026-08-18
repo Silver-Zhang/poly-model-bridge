@@ -48,8 +48,20 @@ let keyStates = {};
 let dirty = false;
 let routing = null;
 let routableModels = [];
+/**
+ * Collapsed by default: both panels are opt-in tuning, and the provider list is
+ * what people come here for. Module-level so a re-render keeps them as they are.
+ */
+let panelOpen = { routing: false, cli: false };
 /** Copilot CLI card state. The snippet is rendered by the extension host. */
-let cli = { pickerId: "", shell: "pwsh", snippet: "", warnings: [] };
+let cli = {
+  enabled: false,
+  pickerId: "",
+  shell: "pwsh",
+  snippet: "",
+  warnings: [],
+  siblings: [],
+};
 
 function esc(value) {
   return String(value === undefined || value === null ? "" : value).replace(
@@ -345,12 +357,21 @@ function modelOptions(selected) {
   return `<option value="" ${selected ? "" : "selected"}>（未选择）</option>${options}`;
 }
 
+/** Head of a collapsible panel, so a closed card still says what it is set to. */
+function panelHeadHtml(key, title, badges) {
+  return `<div class="card-head" data-toggle-panel="${key}">
+    <span class="twisty">›</span>
+    <h2>${esc(title)}</h2>
+    ${badges.filter(Boolean).join("")}
+  </div>`;
+}
+
 function routingHtml() {
   if (!routing) return "";
   if (!routableModels.length) {
-    return `<section class="card open routing">
-  <div class="card-head"><h2>Copilot 路由</h2></div>
-  <div class="card-body"><div class="hint">先添加并保存至少一个支持工具调用的模型，这里才能选择路由目标。</div></div>
+    return `<section class="card panel routing ${panelOpen.routing ? "open" : ""}">
+  ${panelHeadHtml("routing", "Copilot 路由", ['<span class="badge">还不可用</span>'])}
+  <div class="card-body"><div class="section"><div class="hint">先添加并保存至少一个支持工具调用的模型，这里才能选择路由目标。</div></div></div>
 </section>`;
   }
 
@@ -361,8 +382,14 @@ function routingHtml() {
     </label>`
   ).join("");
 
-  return `<section class="card open routing">
-  <div class="card-head"><h2>Copilot 路由</h2><span class="badge">避免误用订阅额度</span></div>
+  const utilityMode = UTILITY_MODES.find((mode) => mode.value === routing.utility);
+  const badges = [
+    `<span class="badge${routing.utility === "copilot" ? " warn" : " ok"}">辅助调用：${esc(utilityMode ? utilityMode.label : "未设置")}</span>`,
+    routing.subagentRedirect ? '<span class="badge ok">子 Agent 强制改道</span>' : "",
+  ];
+
+  return `<section class="card panel routing ${panelOpen.routing ? "open" : ""}">
+  ${panelHeadHtml("routing", "Copilot 路由", badges)}
   <div class="card-body">
     <p class="muted">Copilot 有几类请求不走模型选择器，默认会落到 GitHub 订阅模型上。在这里一次设好，PolyBridge 会替你写进对应的 VS Code 设置。</p>
 
@@ -441,9 +468,9 @@ const CLI_SHELLS = [
 
 function cliHtml() {
   if (!routableModels.length) {
-    return `<section class="card open routing">
-  <div class="card-head"><h2>Copilot CLI</h2></div>
-  <div class="card-body"><div class="hint">先添加并保存至少一个支持工具调用的模型，这里才能生成 CLI 配置。</div></div>
+    return `<section class="card panel cli ${panelOpen.cli ? "open" : ""}">
+  ${panelHeadHtml("cli", "Copilot CLI", ['<span class="badge">还不可用</span>'])}
+  <div class="card-body"><div class="section"><div class="hint">先添加并保存至少一个支持工具调用的模型，这里才能生成 CLI 配置。</div></div></div>
 </section>`;
   }
 
@@ -454,46 +481,79 @@ function cliHtml() {
     `<option value="${item.value}" ${item.value === cli.shell ? "selected" : ""}>${esc(item.label)}</option>`
   ).join("");
 
-  return `<section class="card open routing cli">
-  <div class="card-head"><h2>Copilot CLI</h2><span class="badge">终端里也用中转站</span></div>
+  const chosen = routableModels.find((model) => model.pickerId === cli.pickerId);
+  const badges = [
+    `<span class="badge${cli.enabled ? " ok" : ""}">${cli.enabled ? "终端已接管" : "未启用"}</span>`,
+    cli.enabled && chosen ? `<span class="badge">${esc(chosen.name)}</span>` : "",
+  ];
+
+  return `<section class="card panel cli ${panelOpen.cli ? "open" : ""}">
+  ${panelHeadHtml("cli", "Copilot CLI", badges)}
   <div class="card-body">
     <p class="muted">终端里的 <code>copilot</code> 是独立进程，看不到 VS Code 里注册的模型。好在它自带 BYOK，认的三种协议和这里配的完全一致，所以 PolyBridge 把中转站翻译成一组环境变量交给它就行。</p>
 
     <div class="section">
-      <div class="section-title"><h3>启动配置</h3></div>
+      <label class="switch${cli.enabled ? " on" : ""}">
+        <input type="checkbox" id="cli-enabled" ${cli.enabled ? "checked" : ""}>
+        <span class="switch-text">
+          <strong>让 VS Code 终端里的 copilot 走中转站</strong>
+          <span class="hint">打开后，这个窗口新开的每个终端都会自动带上下面这组变量，直接敲 <code>copilot</code> 就行——不用改 shell 配置文件，也不用手动 export。关掉即恢复 GitHub 订阅模型。</span>
+        </span>
+      </label>
       <div class="grid">
         <div class="field">
           <label>CLI 使用的模型</label>
           <select data-cli="pickerId">${modelPicks}</select>
           <span class="hint">只列出支持工具调用的模型——CLI 强制要求工具调用和流式输出。</span>
         </div>
-        <div class="field">
-          <label>复制片段用的 shell</label>
-          <select data-cli="shell">${shellPicks}</select>
-          <span class="hint">只影响「复制环境变量」的写法，「在终端启动」不受影响。</span>
-        </div>
       </div>
+      <p class="hint">API key 从 SecretStorage 现取现用，只交给终端进程，不写进任何文件；VS Code 关掉后这组变量随之消失。已经开着的终端要重开一次才会生效。</p>
       <div class="actions routing-actions">
-        <button class="save" id="launch-cli">在终端启动</button>
-        <button class="secondary" id="copy-cli">复制环境变量</button>
+        <button class="secondary" id="launch-cli">新开一个终端并启动</button>
       </div>
-      <p class="hint">「在终端启动」会新开一个终端，把变量注入该进程后运行 <code>copilot</code>，API key 只存在于这个终端里。「复制环境变量」出于安全考虑把 key 换成占位符，粘贴后请自行替换。</p>
     </div>
 
     <div class="section">
-      <div class="section-title"><h3>将要设置的变量</h3></div>
-      <pre class="snippet" id="cli-snippet">${esc(cli.snippet)}</pre>
-      <div id="cli-warnings">${cliWarningsHtml()}</div>
+      <div class="section-title"><h3>换模型</h3></div>
+      <p class="hint">CLI 配了自定义 provider 之后模型列表为空，<strong>会话中途的 <code>/model</code> 用不了</strong>。CLI 内部确实有支持多模型和会话内切换的注册表，但只对 SDK 开放，交互式的 <code>copilot</code> 没有任何环境变量、命令行参数或配置项能喂给它。</p>
+      <p class="hint">好在同一个中转站内换模型很便宜：<code>COPILOT_MODEL</code> 只是默认值，<strong>退出后直接运行 <code>copilot --model &lt;模型ID&gt;</code></strong> 就换掉了，环境变量不用重设。换中转站或换协议才需要回到这里重选。</p>
+      <div id="cli-siblings">${cliSiblingsHtml()}</div>
     </div>
 
+    <details class="advanced cli-advanced">
+      <summary>手动配置（外部终端、Windows Terminal、CI 等）</summary>
+      <div class="section">
+        <div class="grid">
+          <div class="field">
+            <label>片段写法</label>
+            <select data-cli="shell">${shellPicks}</select>
+            <span class="hint">只影响下面片段和「复制」按钮的写法，上面的开关不受影响。</span>
+          </div>
+        </div>
+        <pre class="snippet" id="cli-snippet">${esc(cli.snippet)}</pre>
+        <div class="actions routing-actions">
+          <button class="secondary" id="copy-cli">复制环境变量</button>
+        </div>
+        <p class="hint">出于安全考虑，复制出来的片段里 API key 是占位符，粘贴后请自行替换。</p>
+        <div id="cli-warnings">${cliWarningsHtml()}</div>
+      </div>
+    </details>
+
     <div class="section">
-      <div class="section-title"><h3>两个限制</h3></div>
-      <p class="hint"><strong>一个终端只能用一个模型。</strong>CLI 配了自定义 provider 之后模型列表为空，会话中途的 <code>/model</code> 切换用不了。要换模型就回到这里重新启动一个终端。</p>
-      <p class="hint"><strong>该终端里 GitHub 自带模型不再可用。</strong>设了自定义端点之后所有请求都走中转站，每月的 AI Credits 也不会被消耗——这既是省额度的办法，也意味着订阅模型在这个终端里用不了。</p>
+      <div class="section-title"><h3>一处取舍</h3></div>
+      <p class="hint"><strong>启用后 GitHub 自带模型不再可用。</strong>设了自定义端点之后所有请求都走中转站，每月的 AI Credits 也不会被消耗——这既是省额度的办法，也意味着订阅模型在这些终端里用不了。</p>
       <p class="hint">好消息是 CLI 内置的子 Agent（explore / task / code-review）会自动继承这套配置，不像插件那边还要单独指定。</p>
     </div>
   </div>
 </section>`;
+}
+
+function cliSiblingsHtml() {
+  if (!cli.siblings.length) return "";
+  return `<p class="snippet-label">这个中转站里，同一组变量下还能直接切到：</p>
+  <pre class="snippet">${cli.siblings
+    .map((id) => esc("copilot --model " + id))
+    .join("\n")}</pre>`;
 }
 
 function cliWarningsHtml() {
@@ -503,10 +563,21 @@ function cliWarningsHtml() {
 
 function render() {
   const content = document.getElementById("content");
+  const modelCount = providers.reduce(
+    (total, provider) => total + (Array.isArray(provider.models) ? provider.models.length : 0),
+    0
+  );
   content.innerHTML = providers.length
-    ? providers.map(providerHtml).join("")
+    ? `<div class="group-title">中转站 · ${providers.length} 个 / ${modelCount} 个模型</div>` +
+      providers.map(providerHtml).join("")
     : `<div class="empty"><h2>还没有添加中转站</h2><p class="muted">添加一个中转站，把它提供的模型接入 Copilot。全部设置都在这个界面完成。</p><button id="empty-add">添加第一个中转站</button></div>`;
-  document.getElementById("routing").innerHTML = providers.length ? routingHtml() : "";
+  // Both panels are collapsed by default, so they sit under one heading rather
+  // than competing with the provider list for attention. They stay in separate
+  // containers because bindRouting/bindCli scope their queries to each id.
+  const routingCard = providers.length ? routingHtml() : "";
+  document.getElementById("routing").innerHTML = routingCard
+    ? '<div class="group-title">进阶设置</div>' + routingCard
+    : "";
   document.getElementById("cli").innerHTML = providers.length ? cliHtml() : "";
   document.getElementById("savebar").style.display = providers.length ? "flex" : "none";
   bind();
@@ -618,6 +689,16 @@ function bind() {
       vscode.postMessage({ type: "fetchModels", provider: providers[Number(button.dataset.p)] });
     };
   });
+  document.querySelectorAll("[data-toggle-panel]").forEach((head) => {
+    head.onclick = (event) => {
+      // The switch and its label live inside the body, never the head, so a
+      // click here is always a collapse — except on the buttons we host there.
+      if (event.target.closest("button")) return;
+      const key = head.dataset.togglePanel;
+      panelOpen[key] = !panelOpen[key];
+      head.parentElement.classList.toggle("open", panelOpen[key]);
+    };
+  });
   const emptyAdd = document.getElementById("empty-add");
   if (emptyAdd) emptyAdd.onclick = () => mutate(() => providers.push(defaultProvider()));
   bindRouting();
@@ -638,8 +719,18 @@ function bindCli() {
       // Only the preview changes, so patch it in place rather than re-rendering
       // — a full render would rebuild the provider cards and drop focus.
       requestCliPreview();
+      // The switch is live: changing the model while it is on re-applies it,
+      // so there is nothing extra to press.
+      if (cli.enabled && element.dataset.cli === "pickerId") saveCliState();
     });
   });
+  const toggle = document.getElementById("cli-enabled");
+  if (toggle) {
+    toggle.onchange = () => {
+      cli.enabled = toggle.checked;
+      saveCliState();
+    };
+  }
   const launch = document.getElementById("launch-cli");
   if (launch) {
     launch.onclick = () =>
@@ -650,6 +741,14 @@ function bindCli() {
     copy.onclick = () =>
       vscode.postMessage({ type: "copyCliEnv", pickerId: cli.pickerId, shell: cli.shell });
   }
+}
+
+function saveCliState() {
+  vscode.postMessage({
+    type: "saveCliState",
+    enabled: cli.enabled,
+    pickerId: cli.pickerId,
+  });
 }
 
 /** Read routing controls back into `routing` without touching provider state. */
@@ -738,12 +837,17 @@ window.addEventListener("message", (event) => {
     routing = message.routing || null;
     routableModels = message.models || [];
     if (message.cliShell) cli.shell = message.cliShell;
+    if (message.cliState) {
+      cli.enabled = message.cliState.enabled === true;
+      if (message.cliState.pickerId) cli.pickerId = message.cliState.pickerId;
+    }
     // Keep the chosen model across saves, but fall back when it was renamed
     // or removed — its picker id embeds the provider and model names.
     if (!routableModels.some((model) => model.pickerId === cli.pickerId)) {
       cli.pickerId = routableModels.length ? routableModels[0].pickerId : "";
       cli.snippet = "";
       cli.warnings = [];
+      cli.siblings = [];
     }
     dirty = false;
     render();
@@ -751,10 +855,21 @@ window.addEventListener("message", (event) => {
   } else if (message.type === "cliPreview") {
     cli.snippet = message.snippet || "";
     cli.warnings = message.warnings || [];
+    cli.siblings = message.siblings || [];
     const snippet = document.getElementById("cli-snippet");
     const warnings = document.getElementById("cli-warnings");
+    const siblings = document.getElementById("cli-siblings");
     if (snippet) snippet.textContent = cli.snippet;
     if (warnings) warnings.innerHTML = cliWarningsHtml();
+    if (siblings) siblings.innerHTML = cliSiblingsHtml();
+  } else if (message.type === "cliStateSaved") {
+    notice(
+      message.message ||
+        (message.active
+          ? "已启用：新开的终端里 copilot 会走中转站。"
+          : "已关闭：终端里的 copilot 恢复使用 GitHub 订阅模型。"),
+      !!message.message
+    );
   } else if (message.type === "routingSaved") {
     notice(message.message || "路由设置已保存。");
   } else if (message.type === "saved") {

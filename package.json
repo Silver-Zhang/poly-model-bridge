@@ -2,7 +2,7 @@
   "name": "poly-model-bridge",
   "displayName": "Poly Model Bridge for Copilot",
   "description": "Bring third-party models into GitHub Copilot's model picker over Anthropic Messages, OpenAI Chat Completions, or OpenAI Responses protocols — with per-model reasoning effort variants, tool calling and vision.",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "publisher": "silver-zhang",
   "author": {
     "name": "Silver-Zhang"
@@ -43,7 +43,9 @@
   },
   "pricing": "Free",
   "main": "./extension.js",
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -91,6 +93,10 @@
       {
         "command": "polyBridge.copyModelReference",
         "title": "Poly Model Bridge: Copy Model Reference (复制模型引用名)"
+      },
+      {
+        "command": "polyBridge.toggleCliTerminalEnv",
+        "title": "Poly Model Bridge: Toggle Copilot CLI in Terminals (终端里的 copilot 走中转站)"
       },
       {
         "command": "polyBridge.launchCopilotCli",

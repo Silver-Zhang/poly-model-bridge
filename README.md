@@ -20,7 +20,7 @@ Poly Model Bridge 是一个轻量的本地 VS Code 扩展，适用于 Anthropic�
 - **自动发现模型**：可以从中转站的模型列表接口读取可用模型
 - **中转站重命名自动迁移密钥**：避免修改名称后丢失 API Key
 - **Copilot 路由**：把子 Agent 和后台辅助请求也指向中转站模型，避免误用 Copilot 订阅额度
-- **Copilot CLI**：终端里的 `copilot` 也能用同一批中转站模型，一键启动或复制环境变量
+- **Copilot CLI**：一个开关，让 VS Code 终端里的 `copilot` 也用同一批中转站模型
 
 ## 🚀 快速开始
 
@@ -127,12 +127,20 @@ Poly Model Bridge 是一个轻量的本地 VS Code 扩展，适用于 Anthropic�
 
 终端里的 `copilot` 命令是一个独立进程，看不到扩展在 VS Code 内注册的模型。好在它自带 BYOK，认的三种协议和这里配的完全一致，所以 PolyBridge 不需要做协议中转，只要把中转站翻译成一组环境变量交给它。
 
-在管理界面的 **Copilot CLI** 面板里选好模型，两个按钮：
+在管理界面的 **Copilot CLI** 面板里选好模型，打开开关 **「让 VS Code 终端里的 copilot 走中转站」** 就配置完了：这个窗口新开的每个终端都会自动带上下面那组变量，直接敲 `copilot` 即可。不用改 shell 配置文件，也不用手动 `export`；关掉开关即恢复 GitHub 订阅模型。命令面板里的 **Toggle Copilot CLI in Terminals** 是同一个开关。
 
-- **在终端启动**：新开一个终端，把变量注入该进程后运行 `copilot`。API key 只存在于这个终端进程里，不写入任何文件。
-- **复制环境变量**：按 PowerShell / bash / cmd 的写法复制到剪贴板，**API key 会被替换成占位符**，粘贴后自行替换——避免明文密钥进入聊天记录、笔记或仓库。
+实现用的是 VS Code 自己的 `environmentVariableCollection`，并显式设为**非持久化**——API key 只随终端进程存在，不会被 VS Code 缓存到磁盘，也不写入任何配置文件。
 
-也可以从终端面板的 `+` 下拉里直接选 **Copilot CLI (PolyBridge)**。
+不想开全局开关时，面板底部的 **「手动配置」** 里还有两条路：
+
+- **在终端启动**：单独开一个终端，只给这一个进程注入变量并运行 `copilot`。也可以从终端面板的 `+` 下拉里选 **Copilot CLI (PolyBridge)**。
+- **复制环境变量**：按 PowerShell / bash / cmd 的写法复制到剪贴板，供外部终端、Windows Terminal、CI 使用。**API key 会被替换成占位符**，粘贴后自行替换——避免明文密钥进入聊天记录、笔记或仓库。
+
+### 在 CLI 里换模型
+
+`COPILOT_MODEL` 只是个默认值，所以**同一个中转站内换模型不需要改任何变量**，退出后重新运行 `copilot --model <模型ID>` 即可。面板和输出日志会直接把当前可用的几条命令列出来。换中转站（或换协议）才需要回面板改选择。
+
+会话中途的 `/model` 用不了：配了自定义 provider 之后 CLI 的模型列表恒为空，`/model` 还额外要求 GitHub 处于登录态。CLI 内部确实有一套支持多模型、且能让 `/model` 正常工作的 provider 注册表（`providers` / `models`），但它只能通过 SDK 的 `getSession({ clientKind: "sdk", … })` 传入——交互式的 `copilot` 命令没有对应的环境变量、命令行参数或配置项，扩展侧无法触及。
 
 PolyBridge 生成的变量（未配置的项一律不设，由 CLI 用自己的默认值）：
 
@@ -143,14 +151,11 @@ PolyBridge 生成的变量（未配置的项一律不设，由 CLI 用自己的�
 | `COPILOT_PROVIDER_WIRE_API` | 仅 Responses 协议设为 `responses` |
 | `COPILOT_MODEL` | 模型 ID |
 | `COPILOT_PROVIDER_API_KEY` / `..._BEARER_TOKEN` | 按中转站的认证方式二选一 |
-| `COPILOT_PROVIDER_HEADERS` | 自定义请求头 |
+| `COPILOT_PROVIDER_HEADERS` | 自定义请求头，格式是每行一条 `名称: 值`（CLI 同时接受真换行和字面量 `\n`） |
 | `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` / `..._MAX_OUTPUT_TOKENS` | 上下文长度 / 输出上限 |
 | `COPILOT_AGENT_REASONING_EFFORT` | 推理强度 |
 
-两个来自 CLI 本身的限制：
-
-- **一个终端只能用一个模型。** 配了自定义 provider 之后 CLI 的模型列表为空，会话中途的 `/model` 切换用不了。换模型请回到面板重新启动一个终端。
-- **该终端里 GitHub 自带模型不再可用。** 设了自定义端点之后所有请求都走中转站，每月的 AI Credits 也不会被消耗——既是省额度的办法，也意味着订阅模型在这个终端里用不了。
+一个来自 CLI 本身的限制：**开关打开后，这些终端里 GitHub 自带模型不再可用。** 设了自定义端点之后所有请求都走中转站，每月的 AI Credits 也不会被消耗——既是省额度的办法，也意味着订阅模型在这些终端里用不了。需要订阅模型时把开关关掉，再开一个新终端即可。
 
 另外，PolyBridge 在插件侧做的上下文裁剪、工具输出截断、用量统计和 Anthropic 缓存兼容都不参与 CLI 的请求——CLI 直连中转站，上下文由它自己管理。相对地，CLI 内置的子 Agent（explore / task / code-review）会自动继承这套配置，不像插件那边还要单独指定。
 

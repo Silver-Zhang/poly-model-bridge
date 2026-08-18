@@ -11,7 +11,14 @@ const {
 const { addProviderWizard, quickSettings, fmtTokens } = require("./ui");
 const { ManagerPanel } = require("./manager");
 const { SidebarProvider } = require("./sidebar");
-const { planCliEnv, formatEnvSnippet } = require("./cli");
+const {
+  planCliEnv,
+  formatEnvSnippet,
+  cliSiblingModels,
+  readCliState,
+  CLI_STATE_ENABLED,
+  CLI_STATE_MODEL,
+} = require("./cli");
 
 const CLI_INSTALL_COMMAND = "npm install -g @github/copilot";
 const CLI_DOCS_URL =
@@ -185,9 +192,69 @@ function logCliPlan(output, entry, env, warnings) {
         env.COPILOT_PROVIDER_WIRE_API ? ", wireApi=" + env.COPILOT_PROVIDER_WIRE_API : ""
       })`
   );
+  const siblings = cliSiblingModels(entry, enumerateModels());
+  if (siblings.length) {
+    output.appendLine(
+      "[cli] 同一环境下可直接切换的模型：" +
+        siblings.map((id) => "copilot --model " + id).join("、")
+    );
+  }
   for (const warning of warnings) {
     output.appendLine("[cli] 注意：" + warning);
   }
+}
+
+/**
+ * Apply the "use PolyBridge in VS Code terminals" switch.
+ *
+ * `environmentVariableCollection` is VS Code's own mechanism for this: every
+ * terminal the window opens inherits the variables, so there is nothing to set
+ * up in a shell profile and `copilot` just works. The collection is marked
+ * non-persistent on purpose — persistence would have VS Code cache the API key
+ * to disk, whereas this way it is re-derived from SecretStorage on each
+ * activation and disappears with the window.
+ *
+ * Silent by design: it runs on startup, where a modal about a missing key would
+ * be noise. Problems go to the output channel and the manager panel instead.
+ */
+async function applyCliTerminalEnv(context, provider, output) {
+  const collection = context.environmentVariableCollection;
+  if (!collection) {
+    return { active: false, reason: "当前 VS Code 版本不支持终端环境变量注入。" };
+  }
+  collection.persistent = false;
+  collection.clear();
+  collection.description = undefined;
+
+  const { enabled, pickerId } = readCliState(context.globalState);
+  if (!enabled) {
+    return { active: false };
+  }
+  const entries = enumerateModels();
+  const entry =
+    entries.find((item) => item.pickerId === pickerId) ||
+    entries.find((item) => item.info.capabilities.toolCalling);
+  if (!entry) {
+    const reason = "没有可用于 CLI 的模型（需要支持工具调用），终端注入已跳过。";
+    output.appendLine("[cli] " + reason);
+    return { active: false, reason };
+  }
+  const needsKey = entry.provider.requiresApiKey !== false;
+  const apiKey = needsKey ? (await provider.getApiKey(entry.provider.name)) || "" : "";
+  if (needsKey && !apiKey) {
+    const reason = `还没有 "${entry.provider.name}" 的 API key，终端注入已跳过。`;
+    output.appendLine("[cli] " + reason);
+    return { active: false, reason };
+  }
+
+  const { env, warnings } = planCliEnv(entry, apiKey);
+  for (const [name, value] of Object.entries(env)) {
+    collection.replace(name, value);
+  }
+  collection.description = `Copilot CLI 走 PolyBridge：${entry.info.name}（${entry.provider.name}）`;
+  output.appendLine("[cli] 终端注入已启用");
+  logCliPlan(output, entry, env, warnings);
+  return { active: true, entry, warnings };
 }
 
 /**
@@ -225,9 +292,13 @@ async function launchCopilotCli(provider, output, pickerId) {
   });
   terminal.show();
   terminal.sendText("copilot");
+  const siblings = cliSiblingModels(entry, enumerateModels());
   vscode.window
     .showInformationMessage(
-      `已启动 Copilot CLI：${entry.info.name}（${entry.provider.name}）`,
+      `已启动 Copilot CLI：${entry.info.name}（${entry.provider.name}）` +
+        (siblings.length
+          ? `。换模型：退出后在同一终端运行 copilot --model ${siblings[0]}`
+          : ""),
       "查看注意事项"
     )
     .then((pick) => {
@@ -336,6 +407,8 @@ function activate(context) {
         await addProviderWizard(provider);
       } else if (name) {
         await provider.promptForApiKey(name);
+        // A newly stored key may be the one the terminal switch was waiting on.
+        await applyCliTerminalEnv(context, provider, output);
       }
     })
   );
@@ -372,8 +445,48 @@ function activate(context) {
       async (pickerId, shell) => {
         await copyCopilotCliEnv(provider, output, pickerId, shell);
       }
+    ),
+    // Not contributed to the palette: the manager panel and the toggle below
+    // call it after they change the state the collection is derived from.
+    vscode.commands.registerCommand("polyBridge.applyCliTerminalEnv", async () => {
+      const result = await applyCliTerminalEnv(context, provider, output);
+      // The sidebar mirrors the switch, so it has to follow every apply — not
+      // just the ones that came from its own button.
+      sidebar.refresh();
+      return result;
+    }),
+    vscode.commands.registerCommand(
+      "polyBridge.toggleCliTerminalEnv",
+      async () => {
+        const { enabled } = readCliState(context.globalState);
+        if (!enabled) {
+          const entry = await pickModelEntry("终端里的 copilot 用哪个模型？");
+          if (!entry) {
+            return;
+          }
+          await context.globalState.update(CLI_STATE_MODEL, entry.pickerId);
+        }
+        await context.globalState.update(CLI_STATE_ENABLED, !enabled);
+        const result = await applyCliTerminalEnv(context, provider, output);
+        sidebar.refresh();
+        if (!enabled && !result.active) {
+          vscode.window.showWarningMessage(
+            "Poly Model Bridge: " + (result.reason || "终端注入未能启用。")
+          );
+          return;
+        }
+        vscode.window.showInformationMessage(
+          result.active
+            ? `Poly Model Bridge: 终端里的 copilot 已改走 ${result.entry.info.name}。已打开的终端需要重开一次。`
+            : "Poly Model Bridge: 终端里的 copilot 已恢复使用 GitHub 订阅模型。"
+        );
+      }
     )
   );
+
+  applyCliTerminalEnv(context, provider, output).catch((error) => {
+    output.appendLine("[cli] 终端注入失败：" + (error && error.message));
+  });
 
   // Same thing from the terminal's `+` dropdown. A profile cannot send input,
   // so `copilot` has to be the shell itself; without it on PATH the profile
@@ -413,6 +526,8 @@ function activate(context) {
       if (e.affectsConfiguration("polyBridge")) {
         provider.refresh();
         updateStatus();
+        // Endpoints and limits feed the terminal variables, so they follow.
+        applyCliTerminalEnv(context, provider, output).catch(() => {});
       }
     })
   );

@@ -3,7 +3,15 @@ const vscode = require("vscode");
 const { resolveEndpoint } = require("./protocols");
 const { SEP, enumerateModels } = require("./provider");
 const routing = require("./routing");
-const { planCliEnv, formatEnvSnippet, KEY_PLACEHOLDER } = require("./cli");
+const {
+  planCliEnv,
+  formatEnvSnippet,
+  cliSiblingModels,
+  readCliState,
+  KEY_PLACEHOLDER,
+  CLI_STATE_ENABLED,
+  CLI_STATE_MODEL,
+} = require("./cli");
 
 const API_TYPES = new Set(["anthropic", "chat-completions", "responses"]);
 const CACHE_TTLS = new Set(["off", "5m", "1h"]);
@@ -229,6 +237,7 @@ class ManagerPanel {
       routing: routing.readRouting(),
       models: this.routableModels(),
       cliShell: process.platform === "win32" ? "pwsh" : "bash",
+      cliState: readCliState(this.context.globalState),
     });
   }
 
@@ -245,6 +254,7 @@ class ManagerPanel {
         name: entry.info.name,
         qualifiedName: entry.qualifiedName,
         utilityRef: entry.utilityRef,
+        providerName: entry.provider.name,
       }));
   }
 
@@ -277,6 +287,9 @@ class ManagerPanel {
           break;
         case "cliPreview":
           this.sendCliPreview(message.pickerId, message.shell);
+          break;
+        case "saveCliState":
+          await this.saveCliState(message.enabled, message.pickerId);
           break;
         case "launchCli":
           await vscode.commands.executeCommand(
@@ -364,9 +377,15 @@ class ManagerPanel {
    * is used depends on the provider's auth style, not on the key itself.
    */
   sendCliPreview(pickerId, shell) {
-    const entry = enumerateModels().find((item) => item.pickerId === pickerId);
+    const entries = enumerateModels();
+    const entry = entries.find((item) => item.pickerId === pickerId);
     if (!entry) {
-      this.panel.webview.postMessage({ type: "cliPreview", snippet: "", warnings: [] });
+      this.panel.webview.postMessage({
+        type: "cliPreview",
+        snippet: "",
+        warnings: [],
+        siblings: [],
+      });
       return;
     }
     const { env, warnings } = planCliEnv(
@@ -378,7 +397,27 @@ class ManagerPanel {
       pickerId,
       snippet: formatEnvSnippet(env, shell, { maskKey: true }),
       warnings,
+      siblings: cliSiblingModels(entry, entries),
     });
+  }
+
+  /**
+   * Persist the terminal switch, then hand off to the extension host to rebuild
+   * the environment collection — that step needs the API key, so it stays out
+   * of the Webview's reach entirely.
+   */
+  async saveCliState(enabled, pickerId) {
+    await this.context.globalState.update(CLI_STATE_ENABLED, enabled === true);
+    await this.context.globalState.update(CLI_STATE_MODEL, pickerId || "");
+    const result = await vscode.commands.executeCommand(
+      "polyBridge.applyCliTerminalEnv"
+    );
+    this.panel.webview.postMessage({
+      type: "cliStateSaved",
+      active: !!(result && result.active),
+      message: result && result.reason,
+    });
+    await this.sendState();
   }
 
   workspaceFolder() {

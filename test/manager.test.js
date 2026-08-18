@@ -55,11 +55,14 @@ test("manager migrates API Key when a provider is renamed", async () => {
   }];
   const values = new Map([["polyBridge.apiKey::Old Relay", "secret-value"]]);
   const manager = {
-    context: { secrets: {
-      get: async (key) => values.get(key),
-      store: async (key, value) => values.set(key, value),
-      delete: async (key) => values.delete(key),
-    } },
+    context: {
+      secrets: {
+        get: async (key) => values.get(key),
+        store: async (key, value) => values.set(key, value),
+        delete: async (key) => values.delete(key),
+      },
+      globalState: { get: () => undefined },
+    },
     chatProvider: { refresh() {} },
     panel: { webview: { postMessage: async () => {} } },
     sendState: ManagerPanel.prototype.sendState,

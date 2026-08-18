@@ -3,7 +3,15 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 // cli.js only depends on protocols.js, which is vscode-free, so it loads as-is.
-const { planCliEnv, formatEnvSnippet, KEY_PLACEHOLDER } = require("../cli");
+const {
+  planCliEnv,
+  formatEnvSnippet,
+  cliSiblingModels,
+  readCliState,
+  KEY_PLACEHOLDER,
+  CLI_STATE_ENABLED,
+  CLI_STATE_MODEL,
+} = require("../cli");
 
 /** Minimal stand-in for one `enumerateModels()` entry. */
 function entryFor(provider, model, apiType, effort) {
@@ -96,16 +104,29 @@ test("an openai gateway wanting x-api-key gets both headers, with a warning", ()
   // the CLI refuses to start without an api key but always sends it as Bearer,
   // so the raw header has to ride along separately
   assert.equal(env.COPILOT_PROVIDER_API_KEY, "k");
-  assert.deepEqual(JSON.parse(env.COPILOT_PROVIDER_HEADERS), { "x-api-key": "k" });
+  assert.equal(env.COPILOT_PROVIDER_HEADERS, "x-api-key: k");
   assert.ok(warnings.some((w) => w.includes("x-api-key")));
 });
 
-test("provider extra headers are carried across as JSON", () => {
+test("headers are Name: Value, not JSON, and share one line", () => {
+  // The CLI parses COPILOT_PROVIDER_HEADERS by splitting on /\r?\n|\\n/ and
+  // reading "Name: Value" per entry, so a literal backslash-n joins them into
+  // something a single shell assignment can carry.
   const { env } = planCliEnv(
-    chat({ extraHeaders: { "x-tenant": "acme" } }, {}),
+    chat({ extraHeaders: { "x-tenant": "acme", "x-team": "core" } }, {}),
     "k"
   );
-  assert.deepEqual(JSON.parse(env.COPILOT_PROVIDER_HEADERS), { "x-tenant": "acme" });
+  assert.equal(env.COPILOT_PROVIDER_HEADERS, "x-tenant: acme\\nx-team: core");
+  assert.equal(env.COPILOT_PROVIDER_HEADERS.includes("{"), false);
+});
+
+test("headers the CLI would reject are dropped with a warning", () => {
+  const { env, warnings } = planCliEnv(
+    chat({ extraHeaders: { "bad name": "v", "x-ok": "v", "x-cjk": "中文" } }, {}),
+    "k"
+  );
+  assert.equal(env.COPILOT_PROVIDER_HEADERS, "x-ok: v");
+  assert.equal(warnings.filter((w) => w.includes("不接受的字符")).length, 2);
 });
 
 test("limits and effort are only emitted when configured", () => {
@@ -134,6 +155,38 @@ test("capabilities that stay behind in the extension are reported", () => {
   // the two unconditional ones: no PolyBridge request handling, no /model switch
   assert.ok(warnings.some((w) => w.includes("上下文裁剪")));
   assert.ok(warnings.some((w) => w.includes("/model")));
+  // and the switch that does work is spelled out alongside the one that doesn't
+  assert.ok(warnings.some((w) => w.includes("copilot --model")));
+});
+
+test("siblings are the models one --model away, deduped across efforts", () => {
+  const relay = { name: "relay", baseUrl: "https://gw.example.com" };
+  const other = { name: "other", baseUrl: "https://other.example.com" };
+  const entries = [
+    entryFor(relay, { id: "gpt-5" }, "chat-completions", "low"),
+    entryFor(relay, { id: "gpt-5" }, "chat-completions", "high"),
+    entryFor(relay, { id: "gpt-5-mini" }, "chat-completions"),
+    // a different wire api needs different variables, so not reachable
+    entryFor(relay, { id: "o4" }, "responses"),
+    // a different gateway needs a different base url and key
+    entryFor(other, { id: "claude" }, "chat-completions"),
+  ];
+  assert.deepEqual(cliSiblingModels(entries[0], entries), ["gpt-5-mini"]);
+  assert.deepEqual(cliSiblingModels(entries[2], entries), ["gpt-5"]);
+  assert.deepEqual(cliSiblingModels(entries[3], entries), []);
+});
+
+test("the terminal switch is off unless globalState says otherwise", () => {
+  const memento = (data) => ({ get: (key) => data[key] });
+  assert.deepEqual(readCliState(memento({})), { enabled: false, pickerId: "" });
+  // A render must not blow up on a host that has no globalState to offer.
+  assert.deepEqual(readCliState(undefined), { enabled: false, pickerId: "" });
+  // anything short of a real boolean true leaves it off
+  assert.equal(readCliState(memento({ [CLI_STATE_ENABLED]: "yes" })).enabled, false);
+  assert.deepEqual(
+    readCliState(memento({ [CLI_STATE_ENABLED]: true, [CLI_STATE_MODEL]: "relay::gpt-5::" })),
+    { enabled: true, pickerId: "relay::gpt-5::" }
+  );
 });
 
 test("snippets use each shell's own assignment and quoting", () => {

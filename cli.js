@@ -18,8 +18,14 @@
  *
  * Two limits are inherent to the CLI and are surfaced to the user rather than
  * worked around: a custom provider empties the model list, so `/model` cannot
- * switch models mid-session (one model per process), and setting a base URL
- * takes over all routing, so GitHub-hosted models are gone for that process.
+ * switch models mid-session, and setting a base URL takes over all routing, so
+ * GitHub-hosted models are gone for that process. The CLI does have a
+ * multi-model registry (`providers`/`models`) that keeps `/model` working, but
+ * it is reachable only through the SDK's `getSession({clientKind: "sdk", …})` —
+ * the interactive binary has no environment variable, flag or settings key that
+ * feeds it. Switching within one gateway is still cheap, though: `COPILOT_MODEL`
+ * is only a default, so relaunching as `copilot --model <id>` reuses the same
+ * environment. See `cliSiblingModels`.
  */
 
 const { PROTOCOLS, resolveEndpoint } = require("./protocols");
@@ -58,6 +64,47 @@ const SECRET_ENV = new Set([
   "COPILOT_PROVIDER_API_KEY",
   "COPILOT_PROVIDER_BEARER_TOKEN",
 ]);
+
+/** globalState keys backing the "use PolyBridge in VS Code terminals" switch. */
+const CLI_STATE_ENABLED = "cliTerminalEnv";
+const CLI_STATE_MODEL = "cliModel";
+
+/**
+ * Read the switch. Takes a `Memento` so this stays testable without vscode; a
+ * missing one reads as "off" rather than throwing, since every caller's fallback
+ * is the same and an exception here would take a whole render down with it.
+ */
+function readCliState(globalState) {
+  if (!globalState) return { enabled: false, pickerId: "" };
+  return {
+    enabled: globalState.get(CLI_STATE_ENABLED) === true,
+    pickerId: globalState.get(CLI_STATE_MODEL) || "",
+  };
+}
+
+/**
+ * `COPILOT_PROVIDER_HEADERS` is newline-separated `Name: Value`, not JSON. The
+ * CLI splits on `/\r?\n|\\n/`, so a literal backslash-n also separates entries
+ * — which is what lets a whole header set live on one line of a shell snippet.
+ * Names must be a valid HTTP token and values printable ASCII; anything else is
+ * dropped by the CLI with a warning, so it is dropped here with one too.
+ */
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+function formatHeaders(headers, warnings) {
+  const parts = [];
+  for (const [name, value] of Object.entries(headers)) {
+    const text = String(value);
+    if (!HEADER_NAME.test(name) || /[^\t\x20-\x7e]/.test(text)) {
+      warnings.push(
+        `请求头 ${name} 含 CLI 不接受的字符（名称须是 HTTP token，值须是可打印 ASCII），已略过。`
+      );
+      continue;
+    }
+    parts.push(name + ": " + text);
+  }
+  return parts.join("\\n");
+}
 
 /**
  * Reduce a fully resolved endpoint back to the base the CLI wants.
@@ -139,7 +186,10 @@ function planCliEnv(entry, apiKey) {
     }
   }
   if (Object.keys(headers).length > 0) {
-    env.COPILOT_PROVIDER_HEADERS = JSON.stringify(headers);
+    const rendered = formatHeaders(headers, warnings);
+    if (rendered) {
+      env.COPILOT_PROVIDER_HEADERS = rendered;
+    }
   }
 
   if (model.maxInputTokens) {
@@ -173,11 +223,39 @@ function planCliEnv(entry, apiKey) {
       "上下文由 CLI 自己管理。"
   );
   warnings.push(
-    "该终端内所有请求都走这个模型：CLI 配了自定义 provider 后模型列表为空，" +
-      "会话中途无法用 /model 切换，换模型请开新终端。"
+    "CLI 配了自定义 provider 后模型列表为空，会话中途的 /model 用不了。" +
+      `同一个中转站内换模型：退出后运行 copilot --model <模型ID>，无需重设变量；` +
+      "换中转站才需要重新启动。"
   );
 
   return { env, warnings };
+}
+
+/**
+ * Models that can be reached from an already-configured terminal.
+ *
+ * `COPILOT_MODEL` is only the default — the CLI resolves `--model` first and
+ * derives `modelId`/`wireModel` from it — so every model on the same gateway
+ * that speaks the same protocol is one `copilot --model <id>` away. Anything
+ * else needs a different base URL or wire API, which means new variables.
+ * Effort variants collapse: they differ only in `COPILOT_AGENT_REASONING_EFFORT`,
+ * which `--model` does not touch.
+ */
+function cliSiblingModels(entry, entries) {
+  const seen = new Set([entry.model.id]);
+  const siblings = [];
+  for (const other of entries) {
+    if (
+      other.provider.name !== entry.provider.name ||
+      other.apiType !== entry.apiType ||
+      seen.has(other.model.id)
+    ) {
+      continue;
+    }
+    seen.add(other.model.id);
+    siblings.push(other.model.id);
+  }
+  return siblings;
 }
 
 function escapePosix(value) {
@@ -220,6 +298,10 @@ module.exports = {
   planCliEnv,
   formatEnvSnippet,
   baseUrlFromEndpoint,
+  cliSiblingModels,
+  readCliState,
   KEY_PLACEHOLDER,
   ENV_ORDER,
+  CLI_STATE_ENABLED,
+  CLI_STATE_MODEL,
 };
