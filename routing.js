@@ -188,8 +188,16 @@ async function applyRouting(rawRouting, refFor) {
       skipped.push(write.key);
       continue;
     }
-    await config.update(write.key, write.value, vscode.ConfigurationTarget.Global);
-    applied.push(write.key);
+    try {
+      await config.update(write.key, write.value, vscode.ConfigurationTarget.Global);
+      applied.push(write.key);
+    } catch {
+      // `inspect` also returns a value for an unregistered key that merely has
+      // an entry in settings.json — synced from another machine, or written
+      // before this window reloaded the updated manifest. `update` is the only
+      // reliable registration check, so treat its failure as a skip.
+      skipped.push(write.key);
+    }
   }
   return { applied, skipped };
 }

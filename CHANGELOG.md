@@ -10,6 +10,7 @@
 - 该选项只改上游请求，**VS Code 界面仍显示继承来的模型名**，实际去向记录在 PolyBridge 输出面板。
 - 生成的项目指令改用 Copilot 自身在 skills 提示中使用的 `BLOCKING REQUIREMENT` 句式，原先「优先通过……委派」的措辞过弱。
 - 生成的 Agent `description` 改为声明自己是唯一委派目标——该字段是模型从系统提示的 `<agents>` 列表中选择时唯一可见的依据。
+- 修复保存路由时可能抛出 VS Code 原始报错「没有注册配置 polyBridge.subagentModel，因此无法写入用户设置」。更新扩展后配置项要等窗口重新加载才注册，而 settings.json 里若已存在该键，原先的检测会误判为已注册。现在写入失败按「已跳过」处理并提示重启。
 
 ## 0.6.0
 

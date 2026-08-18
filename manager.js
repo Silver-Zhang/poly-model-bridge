@@ -322,9 +322,12 @@ class ManagerPanel {
     const notes = [];
     if (result.skipped.length) {
       // Copilot contributes two of these keys; without it installed they are
-      // simply not registered and cannot be written.
+      // simply not registered. PolyBridge's own keys can also be unregistered
+      // right after an update, until the window reloads the new manifest.
       notes.push(
-        `以下设置未注册（通常是未安装 GitHub Copilot 扩展），已跳过：${result.skipped.join("、")}`
+        `以下设置未注册，已跳过：${result.skipped.join("、")}\n` +
+          `若是 polyBridge.* 开头，请完全退出并重启 VS Code 后重新保存；` +
+          `若是 chat.* 或 github.copilot.*，通常是未安装 GitHub Copilot 扩展。`
       );
     }
     this.panel.webview.postMessage({
